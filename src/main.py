@@ -4,8 +4,6 @@ import ssl
 import urllib.request
 import re
 from collections import defaultdict
-import plotly.graph_objects as go
-import numpy as np
 
 
 Entrez.email = "dominik@hildania.de"
@@ -25,20 +23,7 @@ class Protein:
     aa_start: int
     aa_stop: int
     peptide: str
-    hits = {
-        "K004A1": None,
-        "K004A2": None,
-        "K225A1": None,
-        "K225A2": None,
-        "K003B1": None,
-        "K003B2": None,
-        "K237A1": None,
-        "K237A2": None,
-        "K022B1": None,
-        "K022B2": None,
-        "K302A1": None,
-        "K302A2": None,
-    }
+    hits: dict
     std_dev: float
     info: dict
 
@@ -62,6 +47,21 @@ class Protein:
         self.peptide = peptide
         self.std_dev = std_dev
         self.info = info
+        self.hits = {
+            "K004A1": None,
+            "K004A2": None,
+            "K225A1": None,
+            "K225A2": None,
+            "K003B1": None,
+            "K003B2": None,
+            "K237A1": None,
+            "K237A2": None,
+            "K022B1": None,
+            "K022B2": None,
+            "K302A1": None,
+            "K302A2": None,
+        }
+
         for name, arg in kwargs.items():
             if str(name) not in self.hits.keys():
                 raise ValueError(
@@ -71,6 +71,10 @@ class Protein:
                     + str(self.hits.keys())
                 )
             self.hits[str(name)] = int(str(arg).replace(".", ""))
+
+        for key in self.hits.keys():
+            if self.hits.get(key) == None:
+                raise ValueError("Wrong")
 
 
 def fetch_protein_info(protein_id):
