@@ -5,6 +5,9 @@ import urllib.request
 import re
 from collections import defaultdict
 import plotly.graph_objects as go
+import time
+from scipy.cluster import hierarchy
+import numpy as np
 
 
 Entrez.email = "dominik@hildania.de"
@@ -107,6 +110,69 @@ def fetch_protein_info(protein_id):
     except Exception as e:
         print(f"Error fetching {protein_id}: {e}")
         return None
+
+
+BATCH_SIZE = 50
+REQUEST_DELAY_SECONDS = 0.5
+
+
+def fetch_protein_info_batch(protein_ids: list) -> dict:
+    """
+    Fetch protein information for a list of protein accession IDs in batches.
+
+    Args:
+        protein_ids: A list of protein accession IDs (e.g., ['NP_000047.2']).
+
+    Returns:
+        A dictionary mapping each protein ID to its Bio.SeqRecord.SeqRecord
+        object, or None if fetching failed for that ID.
+    """
+    if not isinstance(protein_ids, list):
+        raise TypeError("protein_ids must be a list")
+    if not protein_ids:
+        return {}
+
+    all_protein_records = {}
+
+    for i in range(0, len(protein_ids), BATCH_SIZE):
+        batch_ids = protein_ids[i: i + BATCH_SIZE]
+        print(
+            f"Processing batch {i // BATCH_SIZE + 1}/{(len(protein_ids) + BATCH_SIZE - 1) // BATCH_SIZE}..."
+        )
+
+        try:
+            fetch_handle = Entrez.efetch(
+                db="protein",
+                id=",".join(batch_ids),
+                # idtype="acc" is crucial for telling Entrez these are accessions.
+                idtype="acc",
+                rettype="gb",
+                retmode="text",
+            )
+            # Use SeqIO.parse for multiple records; SeqIO.read is for a single record.
+            batch_records = SeqIO.parse(fetch_handle, "genbank")
+            current_batch_results = {rec.id: rec for rec in batch_records}
+            fetch_handle.close()
+
+            for protein_id in batch_ids:
+                # The returned record ID (rec.id) includes the version, e.g., "NP_000047.2".
+                # Match it against the original requested ID.
+                found_record = None
+                for rec_id_in_batch, record_obj in current_batch_results.items():
+                    if rec_id_in_batch.startswith(protein_id):
+                        found_record = record_obj
+                        break
+                all_protein_records[protein_id] = found_record
+
+        except Exception as e:
+            print(f"Error fetching batch starting with {batch_ids[0]}: {e}")
+            for protein_id in batch_ids:
+                all_protein_records[protein_id] = None
+
+        if i + BATCH_SIZE < len(protein_ids):
+            time.sleep(REQUEST_DELAY_SECONDS)
+
+    return all_protein_records
 
 
 def extract_gene_info(description):
@@ -224,61 +290,62 @@ if __name__ == "__main__":
         + "{:100}".format("From")
         + "Values"
     )
-    tops: [Protein] = []
-    for row in df.itertuples():
-        (
-            index,
-            seq_id,
-            protein,
-            description,
-            aa_start,
-            aa_stop,
-            peptide,
-            k004a1,
-            k004a2,
-            k225a1,
-            k225a2,
-            k003b1,
-            k003b2,
-            k237a1,
-            k237a2,
-            k022b1,
-            k022b2,
-            k302a1,
-            k302a2,
-            std_dev,
-        ) = row
 
-        info = fetch_protein_info(protein)
+    # --- REFACTORED LOGIC ---
+    # 1. Get a list of unique protein IDs from the DataFrame to avoid redundant fetches.
+    unique_protein_ids = df["Protein"].unique().tolist()
+    print(f"Found {len(unique_protein_ids)} unique protein IDs to fetch.")
+
+    # 2. Fetch all protein information in one batched operation.
+    # This returns a dictionary: {'protein_id': SeqRecord, ...}
+    protein_info_map = fetch_protein_info_batch(unique_protein_ids)
+    print("\n--- Protein fetching complete. Processing DataFrame rows. ---\n")
+    # --- END OF REFACTORED LOGIC ---
+
+    tops: list[Protein] = []
+    for row in df.itertuples():
+        # Get the pre-fetched info for the protein in the current row.
+        # Use .get() to safely handle cases where a protein was not found.
+        info = protein_info_map.get(row.Protein)
+
+        # Skip rows where protein info could not be fetched.
+        if info is None:
+            print(
+                f"Skipping row for protein '{row.Protein}' as its info could not be fetched."
+            )
+            continue
+
         prot = Protein(
-            seq_id=seq_id,
-            sci_identifier=protein,
-            desc=description,
-            aa_start=aa_start,
-            aa_stop=aa_stop,
-            peptide=peptide,
-            std_dev=std_dev,
+            seq_id=row.SeqID,
+            sci_identifier=row.Protein,
+            desc=row.Description,
+            aa_start=row.AA_Start,
+            aa_stop=row.AA_Stop,
+            peptide=row.Peptide,
+            std_dev=row.std_dev,
             info=info,
-            K004A1=k004a1,
-            K004A2=k004a2,
-            K225A1=k225a1,
-            K225A2=k225a2,
-            K003B1=k003b1,
-            K003B2=k003b2,
-            K237A1=k237a1,
-            K237A2=k237a2,
-            K022B1=k022b1,
-            K022B2=k022b2,
-            K302A1=k302a1,
-            K302A2=k302a2,
+            K004A1=row.K004A1,
+            K004A2=row.K004A2,
+            K225A1=row.K225A1,
+            K225A2=row.K225A2,
+            K003B1=row.K003B1,
+            K003B2=row.K003B2,
+            K237A1=row.K237A1,
+            K237A2=row.K237A2,
+            K022B1=row.K022B1,
+            K022B2=row.K022B2,
+            K302A1=row.K302A1,
+            K302A2=row.K302A2,
         )
+
+        extracted_gene = extract_gene_info(prot.info.description)
         print(
             "{:18}".format(prot.sci_identifier)
-            + "{:80}".format(extract_gene_info(prot.info.description))
-            + "{:100}".format(prot.info.description)
-            + str(prot.hits.values())
+            + "{:80}".format(extracted_gene)
+            # Truncate for display
+            + "{:100}".format(prot.info.description[:100])
+            + str(list(prot.hits.values()))
         )
-
         tops.append(prot)
 
     for protein in tops:
@@ -315,3 +382,58 @@ if __name__ == "__main__":
     print(matrix_frame.to_string())
 
     renderPlot(matrix_frame, column_names, row_names)
+
+    print("--- Original DataFrame Head ---")
+    print(matrix_frame.head())
+
+    # --- 2. Perform Hierarchical Clustering on ROWS ONLY ---
+
+    # The linkage function performs the clustering
+    row_linkage = hierarchy.linkage(
+        matrix_frame.values, method="complete", metric="euclidean"
+    )
+
+    # The dendrogram function calculates the optimal leaf ordering for rows
+    row_dendrogram = hierarchy.dendrogram(row_linkage, no_plot=True)
+
+    # The 'leaves' key gives the indices of the rows in their new, clustered order
+    clustered_row_indices = row_dendrogram["leaves"]
+
+    # Get the actual row names in this new order
+    clustered_row_names = matrix_frame.index[clustered_row_indices]
+
+    # --- 3. Create the New DataFrame with Clustered Rows ---
+    # Use .reindex() with only the 'index' argument to reorder rows
+    # and leave the columns in their original order.
+    clustered_rows_df = matrix_frame.reindex(index=clustered_row_names)
+
+    print("\n--- DataFrame with Clustered Rows ---")
+    print("Rows are reordered based on similarity; columns are unchanged.")
+    print(clustered_rows_df.head())
+
+    renderPlot(matrix_frame, column_names, clustered_row_names)
+
+    # --- 2. Get Cluster Labels ---
+    # Define a distance threshold to cut the dendrogram. You may need to adjust this.
+    # A smaller 't' will result in more, smaller clusters.
+    distance_threshold = 50000
+    cluster_labels = hierarchy.fcluster(
+        row_linkage, t=distance_threshold, criterion="distance"
+    )
+    # `cluster_labels` is a NumPy array like: array([2, 1, 1, 3, 2, ...])
+
+    # --- 3. Group Row Names into a Dictionary ---
+    # defaultdict(list) creates a dictionary where each new key automatically
+    # gets an empty list as its value.
+    clusters_dict = defaultdict(list)
+
+    # zip pairs each row name with its corresponding cluster label
+    for row_name, label in zip(matrix_frame.index, cluster_labels):
+        clusters_dict[label].append(row_name)
+
+    # --- 4. View the Result ---
+    print("--- Clusters stored in a dictionary ---")
+    for cluster_id, peptides in clusters_dict.items():
+        print(f"\nCluster {cluster_id}:")
+        # Using np.array for cleaner printing of the list
+        print(str(peptides))
