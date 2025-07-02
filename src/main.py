@@ -4,6 +4,7 @@ import ssl
 import urllib.request
 import re
 from collections import defaultdict
+import plotly.graph_objects as go
 
 
 Entrez.email = "dominik@hildania.de"
@@ -159,6 +160,38 @@ def grouping(protein_data: [Protein]):
     return dict(grouped)
 
 
+def renderPlot(data, x, y):
+    num_rows = len(data.index)
+    num_cols = len(data.columns)
+    cell_size = 30  # pixels per cell
+    margin = 200  # space for labels, colorbar, etc.
+
+    width = num_cols * cell_size + margin
+    height = num_rows * cell_size + margin
+
+    fig = go.Figure(
+        go.Heatmap(
+            z=data,
+            x=x,
+            y=y,
+        )
+    )
+
+    fig.update_layout(
+        width=width,
+        height=height,
+        xaxis=dict(
+            scaleanchor="y",
+            scaleratio=1,
+        ),
+        yaxis=dict(
+            scaleanchor="x",
+        ),
+    )
+
+    fig.show()
+
+
 if __name__ == "__main__":
     df = pd.read_csv(
         "../resources/WWOP230228_PHSN_C12-2_Top100_Variant_Peptides_blinded.csv",
@@ -262,4 +295,23 @@ if __name__ == "__main__":
 
     print("Render plot")
 
+    row_names = []
+    column_names = []
     matrix = []
+
+    for protein in tops:
+        protein: Protein = protein
+        row = []
+        for col_name, value in protein.hits.items():
+            row.append(value)
+            if col_name not in column_names:
+                column_names.append(col_name)
+        matrix.append(row)
+        row_names.append(protein.sci_identifier)
+
+    matrix_frame = pd.DataFrame(
+        data=matrix, index=row_names, columns=column_names)
+
+    print(matrix_frame.to_string())
+
+    renderPlot(matrix_frame, column_names, row_names)
