@@ -11,6 +11,7 @@ This module orchestrates the analysis of protein data including:
 
 import pandas as pd
 import json
+import numpy as np
 from datetime import datetime
 from scipy.cluster import hierarchy
 from collections import defaultdict
@@ -20,7 +21,7 @@ from models.protein import Protein
 from services.protein_service import (
     fetch_protein_info_batch,
     fetch_protein_info_kegg_batch,
-    search_protein_kegg
+    search_protein_kegg,
 )
 from utils.data_processing import extract_gene_info, grouping
 from visualization.plotting import renderPlot
@@ -68,7 +69,7 @@ if __name__ == "__main__":
     # This returns a dictionary: {'protein_id': SeqRecord, ...}
     protein_info_map = fetch_protein_info_batch(unique_protein_ids)
     print("\n--- Protein fetching complete. Processing DataFrame rows. ---\n")
-    
+
     # 3. Fetch KEGG information for all unique proteins
     print("--- Fetching KEGG information for proteins ---")
     kegg_info_map = fetch_protein_info_kegg_batch(unique_protein_ids)
@@ -90,7 +91,7 @@ if __name__ == "__main__":
 
         # Get KEGG info for this protein
         kegg_info = kegg_info_map.get(row.Protein, {})
-        
+
         prot = Protein(
             seq_id=row.SeqID,
             sci_identifier=row.Protein,
@@ -224,11 +225,25 @@ if __name__ == "__main__":
 
                 print(res_top.info)
 
-    # --- 5. Export clusters to JSON ---
-    def export_clusters_to_json(clusters_dict, tops, distance_threshold, filename="clusters_export.json"):
+    # --- 5. Custom JSON encoder for NumPy data types ---
+    class NumpyEncoder(json.JSONEncoder):
+        """Custom JSON encoder that handles NumPy data types."""
+        def default(self, obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            return super(NumpyEncoder, self).default(obj)
+
+    # --- 6. Export clusters to JSON ---
+    def export_clusters_to_json(
+        clusters_dict, tops, distance_threshold, filename="clusters_export.json"
+    ):
         """
         Export cluster information to a JSON file with complete protein data and KEGG information.
-        
+
         Args:
             clusters_dict: Dictionary of cluster_id -> list of protein identifiers
             tops: List of Protein objects with complete data
@@ -237,7 +252,7 @@ if __name__ == "__main__":
         """
         # Create a lookup dictionary for quick protein access
         protein_lookup = {protein.sci_identifier: protein for protein in tops}
-        
+
         # Prepare the export data structure
         export_data = {
             "metadata": {
@@ -246,20 +261,20 @@ if __name__ == "__main__":
                 "total_clusters": len(clusters_dict),
                 "distance_threshold": distance_threshold,
                 "clustering_method": "complete",
-                "clustering_metric": "euclidean"
+                "clustering_metric": "euclidean",
             },
-            "clusters": {}
+            "clusters": {},
         }
-        
+
         # Process each cluster
         for cluster_id, protein_ids in clusters_dict.items():
             cluster_proteins = []
-            
+
             for protein_id in protein_ids:
                 protein = protein_lookup.get(protein_id)
                 if protein is None:
                     continue
-                    
+
                 # Prepare protein data for JSON serialization
                 protein_data = {
                     "seq_id": protein.seq_id,
@@ -272,29 +287,35 @@ if __name__ == "__main__":
                     "hits": protein.hits,
                     "ncbi_info": {
                         "id": protein.info.id if protein.info else None,
-                        "description": protein.info.description if protein.info else None,
-                        "sequence_length": len(protein.info.seq) if protein.info and hasattr(protein.info, 'seq') else None
+                        "description": protein.info.description
+                        if protein.info
+                        else None,
+                        "sequence_length": len(protein.info.seq)
+                        if protein.info and hasattr(protein.info, "seq")
+                        else None,
                     },
-                    "kegg_info": protein.kegg_info
+                    "kegg_info": protein.kegg_info,
                 }
-                
+
                 cluster_proteins.append(protein_data)
-            
+
+            print(cluster_id)
             export_data["clusters"][str(cluster_id)] = {
                 "cluster_id": cluster_id,
                 "protein_count": len(cluster_proteins),
-                "proteins": cluster_proteins
+                "proteins": cluster_proteins,
             }
-        
+
         # Write to JSON file
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(export_data, f, indent=2, ensure_ascii=False)
-        
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(export_data, f, indent=2, ensure_ascii=False, cls=NumpyEncoder)
+
         print(f"\n--- Clusters exported to {filename} ---")
         print(f"Total clusters: {len(clusters_dict)}")
         print(f"Total proteins: {len(tops)}")
-        
+
         return filename
 
     # Export the clusters
-    export_filename = export_clusters_to_json(clusters_dict, tops, distance_threshold)
+    export_filename = export_clusters_to_json(
+        clusters_dict, tops, distance_threshold)
