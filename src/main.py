@@ -1,261 +1,29 @@
+"""
+Main module for protein data analysis.
+
+This module orchestrates the analysis of protein data including:
+- Loading and parsing CSV data
+- Fetching protein information from NCBI
+- Processing and grouping proteins
+- Visualizing results with heatmaps
+- Performing hierarchical clustering
+"""
+
 import pandas as pd
-from Bio import Entrez, SeqIO
-import ssl
-import urllib.request
-import re
-from collections import defaultdict
-import plotly.graph_objects as go
-import time
+import json
+from datetime import datetime
 from scipy.cluster import hierarchy
-import numpy as np
+from collections import defaultdict
 
-
-Entrez.email = "dominik@hildania.de"
-# Fix SSL issues
-ssl_context = ssl.create_default_context()
-ssl_context.check_hostname = False
-ssl_context.verify_mode = ssl.CERT_NONE
-opener = urllib.request.build_opener(
-    urllib.request.HTTPSHandler(context=ssl_context))
-urllib.request.install_opener(opener)
-
-
-class Protein:
-    seq_id: int
-    sci_identifier: str
-    desc: str
-    aa_start: int
-    aa_stop: int
-    peptide: str
-    hits: dict
-    std_dev: float
-    info: dict
-
-    def __init__(
-        self,
-        seq_id: int,
-        sci_identifier: str,
-        desc: str,
-        aa_start: int,
-        aa_stop: int,
-        peptide: str,
-        std_dev: float,
-        info: dict,
-        **kwargs,
-    ):
-        self.seq_id = seq_id
-        self.sci_identifier = sci_identifier
-        self.desc = desc
-        self.aa_start = aa_start
-        self.aa_stop = aa_stop
-        self.peptide = peptide
-        self.std_dev = std_dev
-        self.info = info
-        self.hits = {
-            "K004A1": None,
-            "K004A2": None,
-            "K225A1": None,
-            "K225A2": None,
-            "K003B1": None,
-            "K003B2": None,
-            "K237A1": None,
-            "K237A2": None,
-            "K022B1": None,
-            "K022B2": None,
-            "K302A1": None,
-            "K302A2": None,
-        }
-
-        for name, arg in kwargs.items():
-            if str(name) not in self.hits.keys():
-                raise ValueError(
-                    "Arg: "
-                    + str(name)
-                    + " is not part of the hits prefab: "
-                    + str(self.hits.keys())
-                )
-            self.hits[str(name)] = int(str(arg).replace(".", ""))
-
-        for key in self.hits.keys():
-            if self.hits.get(key) == None:
-                raise ValueError("Wrong")
-
-
-def fetch_protein_info(protein_id):
-    """
-    Fetch protein information using protein accession ID
-    """
-    try:
-        # Search for the protein ID in the protein database
-        search_handle = Entrez.esearch(db="protein", term=protein_id)
-        search_results = Entrez.read(search_handle)
-        search_handle.close()
-
-        if not search_results["IdList"]:
-            print(f"No results found for {protein_id}")
-            return None
-
-        # Get the first ID from search results
-        protein_uid = search_results["IdList"][0]
-
-        # Fetch detailed information
-        fetch_handle = Entrez.efetch(
-            db="protein", id=protein_uid, rettype="gb", retmode="text"
-        )
-        protein_record = SeqIO.read(fetch_handle, "genbank")
-        fetch_handle.close()
-
-        return protein_record
-
-    except Exception as e:
-        print(f"Error fetching {protein_id}: {e}")
-        return None
-
-
-BATCH_SIZE = 50
-REQUEST_DELAY_SECONDS = 0.5
-
-
-def fetch_protein_info_batch(protein_ids: list) -> dict:
-    """
-    Fetch protein information for a list of protein accession IDs in batches.
-
-    Args:
-        protein_ids: A list of protein accession IDs (e.g., ['NP_000047.2']).
-
-    Returns:
-        A dictionary mapping each protein ID to its Bio.SeqRecord.SeqRecord
-        object, or None if fetching failed for that ID.
-    """
-    if not isinstance(protein_ids, list):
-        raise TypeError("protein_ids must be a list")
-    if not protein_ids:
-        return {}
-
-    all_protein_records = {}
-
-    for i in range(0, len(protein_ids), BATCH_SIZE):
-        batch_ids = protein_ids[i: i + BATCH_SIZE]
-        print(
-            f"Processing batch {i // BATCH_SIZE + 1}/{(len(protein_ids) + BATCH_SIZE - 1) // BATCH_SIZE}..."
-        )
-
-        try:
-            fetch_handle = Entrez.efetch(
-                db="protein",
-                id=",".join(batch_ids),
-                # idtype="acc" is crucial for telling Entrez these are accessions.
-                idtype="acc",
-                rettype="gb",
-                retmode="text",
-            )
-            # Use SeqIO.parse for multiple records; SeqIO.read is for a single record.
-            batch_records = SeqIO.parse(fetch_handle, "genbank")
-            current_batch_results = {rec.id: rec for rec in batch_records}
-            fetch_handle.close()
-
-            for protein_id in batch_ids:
-                # The returned record ID (rec.id) includes the version, e.g., "NP_000047.2".
-                # Match it against the original requested ID.
-                found_record = None
-                for rec_id_in_batch, record_obj in current_batch_results.items():
-                    if rec_id_in_batch.startswith(protein_id):
-                        found_record = record_obj
-                        break
-                all_protein_records[protein_id] = found_record
-
-        except Exception as e:
-            print(f"Error fetching batch starting with {batch_ids[0]}: {e}")
-            for protein_id in batch_ids:
-                all_protein_records[protein_id] = None
-
-        if i + BATCH_SIZE < len(protein_ids):
-            time.sleep(REQUEST_DELAY_SECONDS)
-
-    return all_protein_records
-
-
-def extract_gene_info(description):
-    """
-    Extract more detailed gene information for better grouping
-    """
-    # Remove organism info
-    desc_clean = re.sub(r"\[.*?\]", "", description).strip()
-
-    # Remove PREDICTED: prefix
-    desc_clean = re.sub(r"^PREDICTED:\s*", "", desc_clean, flags=re.IGNORECASE)
-
-    # Extract potential gene name patterns
-    gene_patterns = [
-        r"(\w+)\s+isoform",  # Gene name before isoform
-        r"(\w+)\s+variant",  # Gene name before variant
-        r"^([A-Z0-9]+)\s",  # Capital gene name at start
-    ]
-
-    # Remove isoform information
-    isoform_patterns = [
-        r"\s+isoform\s+[A-Za-z0-9]+.*$",
-        r"\s+variant\s+[A-Za-z0-9]+.*$",
-        r"\s+form\s+[A-Za-z0-9]+.*$",
-        r"\s+type\s+[A-Za-z0-9]+.*$",
-    ]
-
-    base_name = desc_clean
-    for pattern in isoform_patterns:
-        base_name = re.sub(pattern, "", base_name, flags=re.IGNORECASE)
-
-    return base_name.strip()
-
-
-def grouping(protein_data: [Protein]):
-    """
-    Advanced grouping with better gene name extraction
-    """
-    grouped = defaultdict(list)
-
-    for protein in protein_data:
-        info = protein.info.description
-        base_name = extract_gene_info(info)
-        grouped[base_name].append(
-            {
-                "description": info,
-                "original_desc": protein.info,
-            }
-        )
-
-    return dict(grouped)
-
-
-def renderPlot(data, x, y):
-    num_rows = len(data.index)
-    num_cols = len(data.columns)
-    cell_size = 30  # pixels per cell
-    margin = 200  # space for labels, colorbar, etc.
-
-    width = num_cols * cell_size + margin
-    height = num_rows * cell_size + margin
-
-    fig = go.Figure(
-        go.Heatmap(
-            z=data,
-            x=x,
-            y=y,
-        )
-    )
-
-    fig.update_layout(
-        width=width,
-        height=height,
-        xaxis=dict(
-            scaleanchor="y",
-            scaleratio=1,
-        ),
-        yaxis=dict(
-            scaleanchor="x",
-        ),
-    )
-
-    fig.show()
+# Import our custom modules
+from models.protein import Protein
+from services.protein_service import (
+    fetch_protein_info_batch,
+    fetch_protein_info_kegg_batch,
+    search_protein_kegg
+)
+from utils.data_processing import extract_gene_info, grouping
+from visualization.plotting import renderPlot
 
 
 if __name__ == "__main__":
@@ -300,6 +68,11 @@ if __name__ == "__main__":
     # This returns a dictionary: {'protein_id': SeqRecord, ...}
     protein_info_map = fetch_protein_info_batch(unique_protein_ids)
     print("\n--- Protein fetching complete. Processing DataFrame rows. ---\n")
+    
+    # 3. Fetch KEGG information for all unique proteins
+    print("--- Fetching KEGG information for proteins ---")
+    kegg_info_map = fetch_protein_info_kegg_batch(unique_protein_ids)
+    print("--- KEGG fetching complete. ---\n")
     # --- END OF REFACTORED LOGIC ---
 
     tops: list[Protein] = []
@@ -315,6 +88,9 @@ if __name__ == "__main__":
             )
             continue
 
+        # Get KEGG info for this protein
+        kegg_info = kegg_info_map.get(row.Protein, {})
+        
         prot = Protein(
             seq_id=row.SeqID,
             sci_identifier=row.Protein,
@@ -324,6 +100,7 @@ if __name__ == "__main__":
             peptide=row.Peptide,
             std_dev=row.std_dev,
             info=info,
+            kegg_info=kegg_info,
             K004A1=row.K004A1,
             K004A2=row.K004A2,
             K225A1=row.K225A1,
@@ -437,3 +214,87 @@ if __name__ == "__main__":
         print(f"\nCluster {cluster_id}:")
         # Using np.array for cleaner printing of the list
         print(str(peptides))
+        if len(peptides) > 1:
+            for peptide in peptides:
+                res_top = None
+                for top in tops:
+                    if peptide == top.sci_identifier:
+                        res_top = top
+                        break
+
+                print(res_top.info)
+
+    # --- 5. Export clusters to JSON ---
+    def export_clusters_to_json(clusters_dict, tops, distance_threshold, filename="clusters_export.json"):
+        """
+        Export cluster information to a JSON file with complete protein data and KEGG information.
+        
+        Args:
+            clusters_dict: Dictionary of cluster_id -> list of protein identifiers
+            tops: List of Protein objects with complete data
+            distance_threshold: The distance threshold used for clustering
+            filename: Output JSON filename
+        """
+        # Create a lookup dictionary for quick protein access
+        protein_lookup = {protein.sci_identifier: protein for protein in tops}
+        
+        # Prepare the export data structure
+        export_data = {
+            "metadata": {
+                "export_timestamp": datetime.now().isoformat(),
+                "total_proteins": len(tops),
+                "total_clusters": len(clusters_dict),
+                "distance_threshold": distance_threshold,
+                "clustering_method": "complete",
+                "clustering_metric": "euclidean"
+            },
+            "clusters": {}
+        }
+        
+        # Process each cluster
+        for cluster_id, protein_ids in clusters_dict.items():
+            cluster_proteins = []
+            
+            for protein_id in protein_ids:
+                protein = protein_lookup.get(protein_id)
+                if protein is None:
+                    continue
+                    
+                # Prepare protein data for JSON serialization
+                protein_data = {
+                    "seq_id": protein.seq_id,
+                    "sci_identifier": protein.sci_identifier,
+                    "description": protein.desc,
+                    "aa_start": protein.aa_start,
+                    "aa_stop": protein.aa_stop,
+                    "peptide": protein.peptide,
+                    "std_dev": protein.std_dev,
+                    "hits": protein.hits,
+                    "ncbi_info": {
+                        "id": protein.info.id if protein.info else None,
+                        "description": protein.info.description if protein.info else None,
+                        "sequence_length": len(protein.info.seq) if protein.info and hasattr(protein.info, 'seq') else None
+                    },
+                    "kegg_info": protein.kegg_info
+                }
+                
+                cluster_proteins.append(protein_data)
+            
+            export_data["clusters"][str(cluster_id)] = {
+                "cluster_id": cluster_id,
+                "protein_count": len(cluster_proteins),
+                "proteins": cluster_proteins
+            }
+        
+        # Write to JSON file
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(export_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"\n--- Clusters exported to {filename} ---")
+        print(f"Total clusters: {len(clusters_dict)}")
+        print(f"Total proteins: {len(tops)}")
+        
+        return filename
+
+    # Export the clusters
+    export_filename = export_clusters_to_json(clusters_dict, tops, distance_threshold)
