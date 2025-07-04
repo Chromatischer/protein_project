@@ -4,7 +4,7 @@ Protein data fetching service module.
 This module provides functions to fetch protein information from NCBI databases
 using Biopython's Entrez API and KEGG database using Bio.KEGG.REST API.
 It includes both single protein fetching and batch processing capabilities
-for efficient data retrieval.
+for efficient data retrieval with JSON-based caching.
 """
 
 from Bio import Entrez, SeqIO
@@ -12,6 +12,9 @@ from Bio.KEGG import REST
 import ssl
 import urllib.request
 import time
+import json
+from pathlib import Path
+from datetime import datetime
 
 
 # Configure Entrez email for NCBI API access
@@ -29,21 +32,131 @@ urllib.request.install_opener(opener)
 BATCH_SIZE = 50
 REQUEST_DELAY_SECONDS = 0.5
 
+# Cache configuration
+CACHE_DIR = Path("cache")
+CACHE_EXPIRY_DAYS = 7
+
+
+def _ensure_cache_dir():
+    """Ensure the cache directory exists."""
+    CACHE_DIR.mkdir(exist_ok=True)
+
+
+def _get_cache_filename(source: str) -> Path:
+    """Get the cache filename for a given source (ncbi or kegg)."""
+    return CACHE_DIR / f"{source}_protein_cache.json"
+
+
+def _is_cache_valid(cache_file: Path) -> bool:
+    """Check if cache file exists and is not expired."""
+    if not cache_file.exists():
+        return False
+    
+    try:
+        cache_age = datetime.now() - datetime.fromtimestamp(cache_file.stat().st_mtime)
+        return cache_age.days < CACHE_EXPIRY_DAYS
+    except Exception:
+        return False
+
+
+def _load_cached_results(protein_ids: list, source: str) -> tuple[dict, list]:
+    """
+    Load cached results and return both cached data and remaining IDs to fetch.
+    
+    Args:
+        protein_ids: List of protein IDs to check
+        source: Cache source ('ncbi' or 'kegg')
+        
+    Returns:
+        Tuple of (cached_results_dict, remaining_ids_list)
+    """
+    _ensure_cache_dir()
+    cache_file = _get_cache_filename(source)
+    
+    cached_results = {}
+    remaining_ids = protein_ids.copy()
+    
+    if _is_cache_valid(cache_file):
+        try:
+            with open(cache_file, 'r') as f:
+                cache_data = json.load(f)
+            
+            for protein_id in protein_ids:
+                if protein_id in cache_data:
+                    cached_results[protein_id] = cache_data[protein_id]
+                    remaining_ids.remove(protein_id)
+                    
+        except Exception as e:
+            print(f"Error loading cache: {e}")
+    
+    return cached_results, remaining_ids
+
+
+def _cache_batch_results(results: dict, source: str):
+    """
+    Cache batch results to JSON file.
+    
+    Args:
+        results: Dictionary of protein_id -> result data
+        source: Cache source ('ncbi' or 'kegg')
+    """
+    _ensure_cache_dir()
+    cache_file = _get_cache_filename(source)
+    
+    # Load existing cache
+    existing_cache = {}
+    if cache_file.exists():
+        try:
+            with open(cache_file, 'r') as f:
+                existing_cache = json.load(f)
+        except Exception as e:
+            print(f"Error loading existing cache: {e}")
+    
+    # Update cache with new results
+    # For NCBI, we need to serialize SeqRecord objects
+    if source == 'ncbi':
+        for protein_id, record in results.items():
+            if record is not None:
+                # Convert SeqRecord to dict for JSON serialization
+                existing_cache[protein_id] = {
+                    'id': record.id,
+                    'description': record.description,
+                    'sequence': str(record.seq),
+                    'features': len(record.features),
+                    'annotations': record.annotations,
+                    '_cached_at': datetime.now().isoformat()
+                }
+            else:
+                existing_cache[protein_id] = None
+    else:
+        # For KEGG, results are already JSON-serializable
+        for protein_id, data in results.items():
+            if data is not None:
+                data['_cached_at'] = datetime.now().isoformat()
+            existing_cache[protein_id] = data
+    
+    # Save updated cache
+    try:
+        with open(cache_file, 'w') as f:
+            json.dump(existing_cache, f, indent=2)
+    except Exception as e:
+        print(f"Error saving cache: {e}")
+
 
 def fetch_protein_info(protein_id):
     """
     Fetch protein information using protein accession ID.
-    
+
     This function searches for a single protein by its accession ID and
     retrieves detailed information from the NCBI protein database.
-    
+
     Args:
         protein_id (str): Protein accession ID (e.g., 'NP_000047.2')
-        
+
     Returns:
         Bio.SeqRecord.SeqRecord or None: Protein record if found, None if not found
         or if an error occurred during fetching
-        
+
     Example:
         >>> record = fetch_protein_info('NP_000047.2')
         >>> if record:
@@ -79,7 +192,7 @@ def fetch_protein_info(protein_id):
 def fetch_protein_info_batch(protein_ids: list) -> dict:
     """
     Fetch protein information for a list of protein accession IDs in batches.
-    
+
     This function efficiently retrieves protein information for multiple proteins
     by processing them in batches to reduce API calls and respect NCBI's rate limits.
     It includes automatic retry handling and progress reporting.
@@ -90,10 +203,10 @@ def fetch_protein_info_batch(protein_ids: list) -> dict:
     Returns:
         dict: A dictionary mapping each protein ID to its Bio.SeqRecord.SeqRecord
               object, or None if fetching failed for that ID
-              
+
     Raises:
         TypeError: If protein_ids is not a list
-        
+
     Example:
         >>> ids = ['NP_000047.2', 'NP_000048.1']
         >>> results = fetch_protein_info_batch(ids)
@@ -157,22 +270,22 @@ def fetch_protein_info_batch(protein_ids: list) -> dict:
 def fetch_protein_info_kegg(protein_id: str) -> dict:
     """
     Fetch protein information from KEGG database using a protein ID.
-    
+
     This function queries the KEGG database for protein information using
     the Bio.KEGG.REST API. It can handle various KEGG protein identifiers
     including UniProt IDs and KEGG gene/protein IDs.
-    
+
     Args:
         protein_id (str): Protein identifier (e.g., 'hsa:7157' for human p53,
                          or UniProt ID like 'P04637')
-                         
+
     Returns:
         dict: A dictionary containing protein information from KEGG including:
               - 'entry': KEGG entry information
               - 'sequence': protein sequence if available
               - 'pathway': associated pathways
               - 'error': error message if query failed
-              
+
     Example:
         >>> info = fetch_protein_info_kegg('hsa:7157')
         >>> if 'error' not in info:
@@ -180,70 +293,75 @@ def fetch_protein_info_kegg(protein_id: str) -> dict:
     """
     try:
         result = {}
-        
+
         # Try to get protein entry information
         try:
             entry_handle = REST.kegg_get(protein_id)
             entry_data = entry_handle.read()
             entry_handle.close()
-            result['entry'] = (entry_data.decode('utf-8')
-                              if isinstance(entry_data, bytes)
-                              else entry_data)
+            result["entry"] = (
+                entry_data.decode("utf-8")
+                if isinstance(entry_data, bytes)
+                else entry_data
+            )
         except Exception as e:
-            result['entry_error'] = f"Could not fetch entry for {protein_id}: {e}"
-        
+            result["entry_error"] = f"Could not fetch entry for {protein_id}: {e}"
+
         # Try to get protein sequence
         try:
             seq_handle = REST.kegg_get(protein_id, "aaseq")
             seq_data = seq_handle.read()
             seq_handle.close()
-            result['sequence'] = (seq_data.decode('utf-8') 
-                                 if isinstance(seq_data, bytes) 
-                                 else seq_data)
+            result["sequence"] = (
+                seq_data.decode("utf-8") if isinstance(seq_data,
+                                                       bytes) else seq_data
+            )
         except Exception as e:
-            result['sequence_error'] = f"Could not fetch sequence for {protein_id}: {e}"
-        
+            result["sequence_error"] = f"Could not fetch sequence for {protein_id}: {e}"
+
         # Try to get pathway information
         try:
             # Extract gene ID if it's in the format 'organism:gene'
-            if ':' in protein_id:
+            if ":" in protein_id:
                 gene_id = protein_id
             else:
                 gene_id = protein_id
-                
+
             pathway_handle = REST.kegg_link("pathway", gene_id)
             pathway_data = pathway_handle.read()
             pathway_handle.close()
-            result['pathways'] = (pathway_data.decode('utf-8') 
-                                 if isinstance(pathway_data, bytes) 
-                                 else pathway_data)
+            result["pathways"] = (
+                pathway_data.decode("utf-8")
+                if isinstance(pathway_data, bytes)
+                else pathway_data
+            )
         except Exception as e:
-            result['pathway_error'] = f"Could not fetch pathways for {protein_id}: {e}"
-            
+            result["pathway_error"] = f"Could not fetch pathways for {protein_id}: {e}"
+
         return result
-        
+
     except Exception as e:
-        return {'error': f"General error fetching {protein_id} from KEGG: {e}"}
+        return {"error": f"General error fetching {protein_id} from KEGG: {e}"}
 
 
 def search_protein_kegg(query: str, organism: str = None) -> list:
     """
     Search for proteins in KEGG database using a query string.
-    
+
     This function searches the KEGG database for proteins matching a query.
     It can search by gene name, protein name, or other identifiers.
-    
+
     Args:
         query (str): Search query (e.g., 'p53', 'insulin', 'BRCA1')
         organism (str, optional): Organism code (e.g., 'hsa' for human, 'mmu' for mouse)
                                  If None, searches across all organisms
-                                 
+
     Returns:
         list: A list of dictionaries containing search results, each with:
               - 'id': KEGG identifier
               - 'description': protein description
               - 'organism': organism code
-              
+
     Example:
         >>> results = search_protein_kegg('p53', 'hsa')
         >>> for result in results:
@@ -251,47 +369,49 @@ def search_protein_kegg(query: str, organism: str = None) -> list:
     """
     try:
         search_results = []
-        
+
         # Construct search query
         if organism:
             search_query = f"{organism}:{query}"
         else:
             search_query = query
-            
+
         # Search in genes database
         try:
             search_handle = REST.kegg_find("genes", search_query)
             search_data = search_handle.read()
             search_handle.close()
-            
+
             if isinstance(search_data, bytes):
-                search_data = search_data.decode('utf-8')
-                
+                search_data = search_data.decode("utf-8")
+
             # Parse search results
-            for line in search_data.strip().split('\n'):
+            for line in search_data.strip().split("\n"):
                 if line.strip():
-                    parts = line.split('\t')
+                    parts = line.split("\t")
                     if len(parts) >= 2:
                         gene_id = parts[0].strip()
                         description = parts[1].strip()
-                        
+
                         # Extract organism from gene_id if present
-                        if ':' in gene_id:
-                            org_code = gene_id.split(':')[0]
+                        if ":" in gene_id:
+                            org_code = gene_id.split(":")[0]
                         else:
-                            org_code = organism or 'unknown'
-                            
-                        search_results.append({
-                            'id': gene_id,
-                            'description': description,
-                            'organism': org_code
-                        })
-                        
+                            org_code = organism or "unknown"
+
+                        search_results.append(
+                            {
+                                "id": gene_id,
+                                "description": description,
+                                "organism": org_code,
+                            }
+                        )
+
         except Exception as e:
             print(f"Error searching KEGG genes: {e}")
-            
+
         return search_results
-        
+
     except Exception as e:
         print(f"General error searching KEGG: {e}")
         return []
@@ -300,20 +420,22 @@ def search_protein_kegg(query: str, organism: str = None) -> list:
 def fetch_protein_info_kegg_batch(protein_ids: list) -> dict:
     """
     Fetch protein information from KEGG database for multiple protein IDs.
-    
+
     This function efficiently retrieves protein information for multiple proteins
-    from KEGG database with rate limiting to respect API constraints.
-    
+    from KEGG database with JSON-based caching and rate limiting to respect API constraints.
+    Since KEGG API doesn't support true batch operations, this uses optimized sequential
+    fetching with comprehensive caching to avoid repeated requests.
+
     Args:
         protein_ids (list): A list of KEGG protein/gene identifiers
-        
+
     Returns:
         dict: A dictionary mapping each protein ID to its KEGG information
               or error message if fetching failed
-              
+
     Raises:
         TypeError: If protein_ids is not a list
-        
+
     Example:
         >>> ids = ['hsa:7157', 'hsa:672']
         >>> results = fetch_protein_info_kegg_batch(ids)
@@ -325,22 +447,147 @@ def fetch_protein_info_kegg_batch(protein_ids: list) -> dict:
         raise TypeError("protein_ids must be a list")
     if not protein_ids:
         return {}
-        
-    all_protein_info = {}
+
+    # Check cache first
+    cached_results, remaining_ids = _load_cached_results(protein_ids, 'kegg')
+    all_protein_info = cached_results.copy()
     
-    for i, protein_id in enumerate(protein_ids):
-        print(f"Fetching KEGG info for {protein_id} ({i+1}/{len(protein_ids)})")
-        
+    if not remaining_ids:
+        print(f"All {len(protein_ids)} proteins found in cache")
+        return all_protein_info
+
+    print(f"Found {len(cached_results)} cached, fetching {len(remaining_ids)} from KEGG")
+
+    # Fetch remaining proteins with caching
+    batch_results = {}
+    for i, protein_id in enumerate(remaining_ids):
+        print(f"Fetching KEGG info for {protein_id} ({i + 1}/{len(remaining_ids)})")
+
         try:
             info = fetch_protein_info_kegg(protein_id)
             all_protein_info[protein_id] = info
-            
+            batch_results[protein_id] = info
+
             # Add delay between requests to respect API rate limits
-            if i < len(protein_ids) - 1:
+            if i < len(remaining_ids) - 1:
                 time.sleep(REQUEST_DELAY_SECONDS)
-                
+
         except Exception as e:
-            all_protein_info[protein_id] = {'error': f"Failed to fetch {protein_id}: {e}"}
-            
+            error_info = {"error": f"Failed to fetch {protein_id}: {e}"}
+            all_protein_info[protein_id] = error_info
+            batch_results[protein_id] = error_info
+
+    # Cache the newly fetched results
+    if batch_results:
+        _cache_batch_results(batch_results, 'kegg')
+
     return all_protein_info
 
+
+def fetch_protein_info_kegg_batch_optimized(protein_ids: list) -> dict:
+    """
+    Attempt to fetch KEGG protein information using any available batch operations.
+    
+    This function explores KEGG API capabilities for batch operations like kegg_link
+    and kegg_list to reduce the number of API calls where possible, falling back to
+    cached sequential fetching when true batch operations aren't available.
+
+    Args:
+        protein_ids (list): A list of KEGG protein/gene identifiers
+
+    Returns:
+        dict: A dictionary mapping each protein ID to its KEGG information
+
+    Example:
+        >>> ids = ['hsa:7157', 'hsa:672']
+        >>> results = fetch_protein_info_kegg_batch_optimized(ids)
+    """
+    if not isinstance(protein_ids, list):
+        raise TypeError("protein_ids must be a list")
+    if not protein_ids:
+        return {}
+
+    # Check cache first
+    cached_results, remaining_ids = _load_cached_results(protein_ids, 'kegg')
+    all_protein_info = cached_results.copy()
+    
+    if not remaining_ids:
+        print(f"All {len(protein_ids)} proteins found in cache")
+        return all_protein_info
+
+    print(f"Found {len(cached_results)} cached, attempting batch fetch for {len(remaining_ids)} from KEGG")
+
+    # Try to use KEGG batch operations where possible
+    batch_results = {}
+    
+    try:
+        # Attempt to get basic info for all IDs at once using kegg_list
+        # This works for some KEGG database entries
+        ids_string = " ".join(remaining_ids)
+        list_handle = REST.kegg_list("genes", ids_string)
+        list_data = list_handle.read()
+        list_handle.close()
+        
+        if isinstance(list_data, bytes):
+            list_data = list_data.decode("utf-8")
+        
+        # Parse batch results if any
+        batch_basic_info = {}
+        for line in list_data.strip().split("\n"):
+            if line.strip() and "\t" in line:
+                parts = line.split("\t", 1)
+                if len(parts) >= 2:
+                    gene_id = parts[0].strip()
+                    description = parts[1].strip()
+                    batch_basic_info[gene_id] = {"entry": f"{gene_id}\t{description}"}
+        
+        print(f"Got batch basic info for {len(batch_basic_info)} proteins")
+        
+        # For proteins that got basic info, fetch additional details individually
+        # For others, fetch everything individually
+        for protein_id in remaining_ids:
+            try:
+                if protein_id in batch_basic_info:
+                    # Start with batch info and add details
+                    info = batch_basic_info[protein_id].copy()
+                else:
+                    info = {}
+                
+                # Add sequence and pathway info (these typically need individual calls)
+                try:
+                    seq_handle = REST.kegg_get(protein_id, "aaseq")
+                    seq_data = seq_handle.read()
+                    seq_handle.close()
+                    info["sequence"] = seq_data.decode("utf-8") if isinstance(seq_data, bytes) else seq_data
+                except Exception as e:
+                    info["sequence_error"] = f"Could not fetch sequence for {protein_id}: {e}"
+
+                try:
+                    pathway_handle = REST.kegg_link("pathway", protein_id)
+                    pathway_data = pathway_handle.read()
+                    pathway_handle.close()
+                    info["pathways"] = pathway_data.decode("utf-8") if isinstance(pathway_data, bytes) else pathway_data
+                except Exception as e:
+                    info["pathway_error"] = f"Could not fetch pathways for {protein_id}: {e}"
+                
+                all_protein_info[protein_id] = info
+                batch_results[protein_id] = info
+                
+                # Small delay between individual requests
+                time.sleep(REQUEST_DELAY_SECONDS)
+                
+            except Exception as e:
+                error_info = {"error": f"Failed to fetch {protein_id}: {e}"}
+                all_protein_info[protein_id] = error_info
+                batch_results[protein_id] = error_info
+
+    except Exception as e:
+        print(f"Batch operation failed, falling back to individual fetching: {e}")
+        # Fallback to individual fetching for all remaining IDs
+        return fetch_protein_info_kegg_batch(protein_ids)
+
+    # Cache the newly fetched results
+    if batch_results:
+        _cache_batch_results(batch_results, 'kegg')
+
+    return all_protein_info
