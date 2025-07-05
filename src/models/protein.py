@@ -35,6 +35,7 @@ class Protein:
     hits: dict
     std_dev: float
     info: dict
+    xref_id: int
 
     def __init__(
         self,
@@ -46,6 +47,7 @@ class Protein:
         peptide: str,
         std_dev: float,
         info: dict,
+        xref_id: int,
         kegg_info: dict = None,
         **kwargs,
     ):
@@ -76,6 +78,7 @@ class Protein:
         self.std_dev = std_dev
         self.info = info
         self.kegg_info = kegg_info or {}
+        self.xref_id = xref_id
 
         # Initialize predefined hit samples with None values
         self.hits = {

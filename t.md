@@ -25,3 +25,14 @@ NP_997244.4:
 
 NP_001269413.1:
  - I cannot verify the following information: (This protein is explicitly identified as a member of the "GOLGA8R golgin family autoantigens" involved in "signaling in autoimmune disease")
+
+
+
+
+NCBI-IDs into the NCBI Database Query for CDS X-Ref GeneID
+
+hsa:<X-Ref GeneID> is the KEGG-ID
+ ^
+Shortform for Homo Sapiens
+
+Query for Network and Disease
