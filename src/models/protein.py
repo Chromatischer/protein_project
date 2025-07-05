@@ -9,10 +9,10 @@ sequence information, peptide data, and experimental hit values.
 class Protein:
     """
     Represents a protein with sequence information and experimental data.
-    
+
     This class stores protein metadata including sequence identifiers,
     peptide information, and experimental hit values from various samples.
-    
+
     Attributes:
         seq_id (int): Sequence identifier
         sci_identifier (str): Scientific protein identifier (e.g., NP_000047.2)
@@ -25,7 +25,7 @@ class Protein:
         info (dict): Additional protein information from database
         kegg_info (dict): KEGG database information for the protein
     """
-    
+
     seq_id: int
     sci_identifier: str
     desc: str
@@ -51,7 +51,7 @@ class Protein:
     ):
         """
         Initialize a Protein instance.
-        
+
         Args:
             seq_id (int): Sequence identifier
             sci_identifier (str): Scientific protein identifier
@@ -62,7 +62,7 @@ class Protein:
             std_dev (float): Standard deviation of measurements
             info (dict): Additional protein information from database
             **kwargs: Experimental hit values for samples (K004A1, K004A2, etc.)
-            
+
         Raises:
             ValueError: If an unknown sample name is provided or if any required
                        hit value is missing
@@ -76,7 +76,7 @@ class Protein:
         self.std_dev = std_dev
         self.info = info
         self.kegg_info = kegg_info or {}
-        
+
         # Initialize predefined hit samples with None values
         self.hits = {
             "K004A1": None,
@@ -109,4 +109,3 @@ class Protein:
         for key in self.hits.keys():
             if self.hits.get(key) == None:
                 raise ValueError("Wrong")
-
