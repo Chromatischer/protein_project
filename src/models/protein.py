@@ -5,6 +5,8 @@ This module contains the Protein class which represents a protein with its
 sequence information, peptide data, and experimental hit values.
 """
 
+from .kegg_model import KeggEntry
+
 
 class Protein:
     """
@@ -36,6 +38,7 @@ class Protein:
     std_dev: float
     info: dict
     xref_id: int
+    kegg_info: KeggEntry
 
     def __init__(
         self,
@@ -48,7 +51,7 @@ class Protein:
         std_dev: float,
         info: dict,
         xref_id: int,
-        kegg_info: dict = None,
+        kegg_info: KeggEntry = None,
         **kwargs,
     ):
         """

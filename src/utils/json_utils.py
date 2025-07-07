@@ -78,7 +78,7 @@ def export_clusters_to_json(
                     if protein.info and hasattr(protein.info, "seq")
                     else None,
                 },
-                "kegg_info": protein.kegg_info,
+                "kegg_info": protein.kegg_info.__dict__,
             }
 
             cluster_proteins.append(protein_data)

@@ -18,10 +18,7 @@ from collections import defaultdict
 
 # Import our custom modules
 from models.protein import Protein
-from services.protein_service import (
-    fetch_protein_info_batch,
-    fetch_protein_info_kegg_batch,
-)
+from services.protein_service import fetch_protein_info_batch, fetch_kegg_info_batch
 from utils.data_processing import extract_gene_info, grouping
 from visualization.plotting import renderPlot
 from utils.json_utils import export_clusters_to_json
@@ -143,7 +140,7 @@ if __name__ == "__main__":
     # 3. Fetch KEGG information in a batch using the collected xref_ids.
     print(f"Found {len(xref_ids_for_kegg)} unique xref_ids for KEGG fetching.")
     # Pass the list of Protein objects directly to the batch function
-    kegg_info_map = fetch_protein_info_kegg_batch(protein_list)
+    kegg_info_map = fetch_kegg_info_batch(protein_list)
     print("\n--- KEGG fetching complete. Populating KEGG info for proteins. ---\n")
 
     # 4. Populate kegg_info for each Protein object.

@@ -11,11 +11,12 @@ from Bio import Entrez, SeqIO
 from Bio.KEGG import REST
 import ssl
 import time
+import math
 import json
 import urllib.request
 from pathlib import Path
 from datetime import datetime
-from models import Protein
+from models import Protein, KeggEntry
 
 # Configure Entrez email for NCBI API access
 Entrez.email = "dominik@hildania.de"
@@ -314,18 +315,24 @@ def fetch_kegg_info_batch(proteins: list[Protein] | list[str]) -> dict:
     result: dict = {}
 
     queries = (
-        ["hsa:" + p.xref_id for p in proteins]
-        if type(proteins) is list[Protein]
+        [f"hsa:{p.xref_id}" for p in proteins]
+        if type(proteins) is not list[str]
         else proteins
     )
 
-    response = None
+    response: str = ""
     try:
-        response = REST.kegg_get(queries).read()
+        for num in range(math.ceil(len(queries) / 10)):
+            low = 0 + num * 10
+            high = 10 + num * 10
+            print(f"Fetching Kegg [{low} to {high}]")
+            querie = queries[low:high]
+            response += REST.kegg_get(querie).read()
+
     except Exception as e:
         print(e)
 
-    assert response is not None
+    assert response != ""
 
     i = 0
     for part in response.split("///"):
@@ -335,7 +342,7 @@ def fetch_kegg_info_batch(proteins: list[Protein] | list[str]) -> dict:
             else:
                 index = proteins[i]
 
-            result[index] = part
+            result[index] = KeggEntry.from_kegg_text(part)
 
             i += 1
 
