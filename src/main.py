@@ -21,7 +21,6 @@ from models.protein import Protein
 from services.protein_service import (
     fetch_protein_info_batch,
     fetch_protein_info_kegg_batch,
-    search_protein_kegg,
 )
 from utils.data_processing import extract_gene_info, grouping
 from visualization.plotting import renderPlot
@@ -73,6 +72,9 @@ if __name__ == "__main__":
     print("\n--- Protein fetching complete. Processing DataFrame rows. ---\n")
 
     protein_list: list[Protein] = []
+    # Collect all xref_ids for KEGG batch fetching
+    xref_ids_for_kegg = []
+
     for row in df.itertuples():
         # Get the pre-fetched info for the protein in the current row.
         # Use .get() to safely handle cases where a protein was not found.
@@ -100,6 +102,7 @@ if __name__ == "__main__":
                 break
 
         assert xref_id is not None, "X-RefID is None, should be int"
+        xref_ids_for_kegg.append(xref_id)
 
         prot = Protein(
             seq_id=row.SeqID,
@@ -111,7 +114,7 @@ if __name__ == "__main__":
             std_dev=row.std_dev,
             info=info,
             xref_id=xref_id,
-            kegg_info=None,
+            kegg_info=None,  # Will be populated after KEGG batch fetch
             K004A1=row.K004A1,
             K004A2=row.K004A2,
             K225A1=row.K225A1,
@@ -136,6 +139,25 @@ if __name__ == "__main__":
             + str(list(prot.hits.values()))
         )
         protein_list.append(prot)
+
+    # 3. Fetch KEGG information in a batch using the collected xref_ids.
+    print(f"Found {len(xref_ids_for_kegg)} unique xref_ids for KEGG fetching.")
+    # Pass the list of Protein objects directly to the batch function
+    kegg_info_map = fetch_protein_info_kegg_batch(protein_list)
+    print("\n--- KEGG fetching complete. Populating KEGG info for proteins. ---\n")
+
+    # 4. Populate kegg_info for each Protein object.
+    for protein in protein_list:
+        # The key in kegg_info_map is the 'hsa:xref_id' string, not just the xref_id
+        kegg_data = kegg_info_map.get(f"hsa:{protein.xref_id}")
+        if kegg_data:
+            protein.kegg_info = kegg_data
+        else:
+            print(
+                f"No KEGG info found for protein {protein.sci_identifier} (X-RefID: {protein.xref_id})."
+            )
+
+    print("\n--- KEGG info population complete. ---\n")
 
     print("Render plot")
 

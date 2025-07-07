@@ -510,3 +510,5 @@ def fetch_protein_info_kegg_batch_optimized(protein_ids: list) -> dict:
         _cache_batch_results(batch_results, "kegg")
 
     return all_protein_info
+
+
