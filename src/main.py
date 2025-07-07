@@ -146,7 +146,7 @@ if __name__ == "__main__":
     # 4. Populate kegg_info for each Protein object.
     for protein in protein_list:
         # The key in kegg_info_map is the 'hsa:xref_id' string, not just the xref_id
-        kegg_data = kegg_info_map.get(f"hsa:{protein.xref_id}")
+        kegg_data = kegg_info_map.get(protein.sci_identifier)
         if kegg_data:
             protein.kegg_info = kegg_data
         else:

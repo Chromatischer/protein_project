@@ -2,6 +2,7 @@ import json
 import numpy as np
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from models import KeggEntry
 
 if TYPE_CHECKING:
     from models.protein import Protein
@@ -78,7 +79,9 @@ def export_clusters_to_json(
                     if protein.info and hasattr(protein.info, "seq")
                     else None,
                 },
-                "kegg_info": protein.kegg_info.__dict__,
+                "kegg_info": dict(protein.kegg_info)
+                if type(protein.kegg_info) is not KeggEntry
+                else protein.kegg_info,
             }
 
             cluster_proteins.append(protein_data)
