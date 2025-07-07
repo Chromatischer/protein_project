@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 class NumpyEncoder(json.JSONEncoder):
-    """Custom JSON encoder that handles NumPy data types."""
+    """Custom JSON encoder that handles NumPy data types and KeggEntry objects."""
 
     def default(self, obj):
         if isinstance(obj, np.integer):
@@ -18,6 +18,25 @@ class NumpyEncoder(json.JSONEncoder):
             return float(obj)
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
+        elif isinstance(obj, KeggEntry):
+            # Convert KeggEntry to a dictionary for JSON serialization
+            return {
+                "entry": obj.entry,
+                "symbol": obj.symbol,
+                "name": obj.name,
+                "position": obj.position,
+                "motif": obj.motif,
+                "dblinks": obj.dblinks,
+                "aaseq": obj.aaseq,
+                "ntseq": obj.ntseq,
+                "orthology": obj.orthology,
+                "organism": obj.organism,
+                "pathway": obj.pathway,
+                "brite": obj.brite,
+                "network": obj.network,
+                "disease": obj.disease,
+                "drug_target": obj.drug_target,
+            }
         return super(NumpyEncoder, self).default(obj)
 
 
@@ -79,9 +98,7 @@ def export_clusters_to_json(
                     if protein.info and hasattr(protein.info, "seq")
                     else None,
                 },
-                "kegg_info": dict(protein.kegg_info)
-                if type(protein.kegg_info) is not KeggEntry
-                else protein.kegg_info,
+                "kegg_info": protein.kegg_info,
             }
 
             cluster_proteins.append(protein_data)

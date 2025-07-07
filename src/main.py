@@ -181,11 +181,32 @@ if __name__ == "__main__":
     print("--- Original DataFrame Head ---")
     print(matrix_frame.head())
 
+    # --- Normalize the dataframes values per row. Think of the data in each row like a vector in a high dimensional space. Normalize it ---
+
+    print("\n--- Before Normalization ---")
+    print("Sample row before normalization:")
+    print(f"Row 0: {matrix_frame.iloc[0].values}")
+    print(f"Row 0 magnitude: {np.linalg.norm(matrix_frame.iloc[0].values)}")
+
+    # Normalize each row to unit length (L2 normalization)
+    # Each row becomes a unit vector in the high-dimensional space
+    normalized_matrix = matrix_frame.div(
+        np.linalg.norm(matrix_frame.values, axis=1), axis=0
+    )
+
+    print("\n--- After Normalization ---")
+    print("Sample row after normalization:")
+    print(f"Row 0: {normalized_matrix.iloc[0].values}")
+    print(f"Row 0 magnitude: {np.linalg.norm(normalized_matrix.iloc[0].values)}")
+
+    print("\n--- Normalized DataFrame Head ---")
+    print(normalized_matrix.head())
+
     # --- 2. Perform Hierarchical Clustering on ROWS ONLY ---
 
     # The linkage function performs the clustering
     row_linkage = hierarchy.linkage(
-        matrix_frame.values, method="complete", metric="euclidean"
+        normalized_matrix.values, method="complete", metric="euclidean"
     )
 
     # The dendrogram function calculates the optimal leaf ordering for rows
@@ -211,7 +232,7 @@ if __name__ == "__main__":
     # --- 2. Get Cluster Labels ---
     # Define a distance threshold to cut the dendrogram. You may need to adjust this.
     # A smaller 't' will result in more, smaller clusters.
-    distance_threshold = 50000
+    distance_threshold = 0.7
     cluster_labels = hierarchy.fcluster(
         row_linkage, t=distance_threshold, criterion="distance"
     )
