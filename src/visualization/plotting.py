@@ -46,6 +46,7 @@ def renderPlot(data, x, y):
             z=data,
             x=x,
             y=y,
+            colorscale="Viridis",
         )
     )
 

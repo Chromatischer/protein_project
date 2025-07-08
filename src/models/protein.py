@@ -112,6 +112,6 @@ class Protein:
             self.hits[str(name)] = int(str(arg).replace(".", ""))
 
         # Ensure all hit values are provided
-        for key in self.hits.keys():
-            if self.hits.get(key) == None:
-                raise ValueError("Wrong")
+        for key, value in self.hits.items():
+            if value is None:
+                raise ValueError(f"value for key {key} is None, should not be None!")

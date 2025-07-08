@@ -9,20 +9,20 @@ This module orchestrates the analysis of protein data including:
 - Performing hierarchical clustering
 """
 
-import pandas as pd
 import json
-import numpy as np
-from datetime import datetime
-from scipy.cluster import hierarchy
 from collections import defaultdict
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+from scipy.cluster import hierarchy
 
 # Import our custom modules
 from models.protein import Protein
-from services.protein_service import fetch_protein_info_batch, fetch_kegg_info_batch
+from services.protein_service import fetch_kegg_info_batch, fetch_protein_info_batch
 from utils.data_processing import extract_gene_info, grouping
-from visualization.plotting import renderPlot
 from utils.json_utils import export_clusters_to_json
-
+from visualization.plotting import renderPlot
 
 if __name__ == "__main__":
     df = pd.read_csv(
