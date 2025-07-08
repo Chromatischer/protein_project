@@ -86,7 +86,8 @@ def get_file_size_mb(filepath: str) -> float:
         import os
 
         return os.path.getsize(filepath) / (1024 * 1024)
-    except:
+    except Exception as e:
+        raise e
         return 0
 
 

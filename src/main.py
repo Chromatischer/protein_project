@@ -156,8 +156,6 @@ if __name__ == "__main__":
 
     print("\n--- KEGG info population complete. ---\n")
 
-    print("Render plot")
-
     row_names = []
     column_names = []
     matrix = []
@@ -174,30 +172,20 @@ if __name__ == "__main__":
 
     matrix_frame = pd.DataFrame(data=matrix, index=row_names, columns=column_names)
 
-    print(matrix_frame.to_string())
-
     # renderPlot(matrix_frame, column_names, row_names)
 
-    print("--- Original DataFrame Head ---")
+    print("\n--- Original DataFrame Head ---")
     print(matrix_frame.head())
 
     # --- Normalize the dataframes values per row. Think of the data in each row like a vector in a high dimensional space. Normalize it ---
 
-    print("\n--- Before Normalization ---")
-    print("Sample row before normalization:")
-    print(f"Row 0: {matrix_frame.iloc[0].values}")
-    print(f"Row 0 magnitude: {np.linalg.norm(matrix_frame.iloc[0].values)}")
+    print("\nNormalizing Dataframe Rows")
 
     # Normalize each row to unit length (L2 normalization)
     # Each row becomes a unit vector in the high-dimensional space
     normalized_matrix = matrix_frame.div(
         np.linalg.norm(matrix_frame.values, axis=1), axis=0
     )
-
-    print("\n--- After Normalization ---")
-    print("Sample row after normalization:")
-    print(f"Row 0: {normalized_matrix.iloc[0].values}")
-    print(f"Row 0 magnitude: {np.linalg.norm(normalized_matrix.iloc[0].values)}")
 
     print("\n--- Normalized DataFrame Head ---")
     print(normalized_matrix.head())
@@ -216,18 +204,18 @@ if __name__ == "__main__":
     clustered_row_indices = row_dendrogram["leaves"]
 
     # Get the actual row names in this new order
-    clustered_row_names = matrix_frame.index[clustered_row_indices]
+    clustered_row_names = normalized_matrix.index[clustered_row_indices]
 
     # --- 3. Create the New DataFrame with Clustered Rows ---
     # Use .reindex() with only the 'index' argument to reorder rows
     # and leave the columns in their original order.
-    clustered_rows_df = matrix_frame.reindex(index=clustered_row_names)
+    clustered_rows_df = normalized_matrix.reindex(index=clustered_row_names)
 
     print("\n--- DataFrame with Clustered Rows ---")
     print("Rows are reordered based on similarity; columns are unchanged.")
     print(clustered_rows_df.head())
 
-    # renderPlot(matrix_frame, column_names, clustered_row_names)
+    renderPlot(normalized_matrix, column_names, clustered_row_names)
 
     # --- 2. Get Cluster Labels ---
     # Define a distance threshold to cut the dendrogram. You may need to adjust this.
@@ -247,8 +235,13 @@ if __name__ == "__main__":
     for row_name, label in zip(matrix_frame.index, cluster_labels):
         clusters_dict[label].append(row_name)
 
+    print(
+        f"\n{len(clusters_dict.items())} Individual clusters"
+        + f"on: {len(protein_list)} Proteins"
+    )
+
     # --- 4. View the Result ---
-    print("--- Clusters stored in a dictionary ---")
+    print("\n--- Clusters stored in a dictionary ---")
     for cluster_id, clustered_proteins in clusters_dict.items():
         print(f"\nCluster {cluster_id}:")
         # Using np.array for cleaner printing of the list
@@ -264,10 +257,13 @@ if __name__ == "__main__":
                     None,
                 )
 
-                print(protein.sci_identifier)
-                print(protein.xref_id)
+                pass
+                # print(protein.sci_identifier)
+                # print(protein.xref_id)
 
     # Export the clusters
     export_filename = export_clusters_to_json(
         clusters_dict, protein_list, distance_threshold
     )
+
+    print("\n--- Successfully exported ---")
