@@ -177,7 +177,8 @@ if __name__ == "__main__":
     print("\n--- Original DataFrame Head ---")
     print(matrix_frame.head())
 
-    # --- Normalize the dataframes values per row. Think of the data in each row like a vector in a high dimensional space. Normalize it ---
+    # --- Normalize the dataframes values per row. Think of the data in each
+    # row like a vector in a high dimensional space. Normalize it ---
 
     print("\nNormalizing Dataframe Rows")
 
