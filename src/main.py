@@ -195,7 +195,7 @@ if __name__ == "__main__":
 
     # The linkage function performs the clustering
     row_linkage = hierarchy.linkage(
-        normalized_matrix.values, method="complete", metric="euclidean"
+        normalized_matrix.values, method="ward", metric="euclidean"
     )
 
     # The dendrogram function calculates the optimal leaf ordering for rows
@@ -216,12 +216,10 @@ if __name__ == "__main__":
     print("Rows are reordered based on similarity; columns are unchanged.")
     print(clustered_rows_df.head())
 
-    renderPlot(normalized_matrix, column_names, clustered_row_names)
-
     # --- 2. Get Cluster Labels ---
     # Define a distance threshold to cut the dendrogram. You may need to adjust this.
     # A smaller 't' will result in more, smaller clusters.
-    distance_threshold = 0.7
+    distance_threshold = 0.85
     cluster_labels = hierarchy.fcluster(
         row_linkage, t=distance_threshold, criterion="distance"
     )
@@ -235,6 +233,14 @@ if __name__ == "__main__":
     # zip pairs each row name with its corresponding cluster label
     for row_name, label in zip(matrix_frame.index, cluster_labels):
         clusters_dict[label].append(row_name)
+
+    # --- 4. Render the Plot with Cluster Information ---
+    renderPlot(
+        normalized_matrix,
+        column_names,
+        clustered_row_names,
+        clusters_dict=clusters_dict,
+    )
 
     print(
         f"\n{len(clusters_dict.items())} Individual clusters"
