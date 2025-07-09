@@ -7,9 +7,17 @@ including heatmaps and other visualization types using Plotly.
 
 import plotly.graph_objects as go
 import plotly.colors as colors
+from copy import deepcopy
+from pandas import DataFrame
 
 
-def renderPlot(data, x, y, clusters_dict=None, cluster_labels=None):
+def renderPlot(
+    data: DataFrame,
+    col_names: list[str],
+    row_names: list[str],
+    clusters_dict: dict = None,
+    cluster_labels: list[str] = None,
+):
     """
     Render a heatmap plot for protein data visualization with cluster
     grouping information.
@@ -21,8 +29,6 @@ def renderPlot(data, x, y, clusters_dict=None, cluster_labels=None):
 
     Args:
         data (pandas.DataFrame): The data matrix to visualize as a heatmap
-        x (list): Column labels for the x-axis (sample names)
-        y (list): Row labels for the y-axis (protein identifiers)
         clusters_dict (dict, optional): Dictionary mapping cluster IDs to
             lists of protein names
         cluster_labels (list, optional): List of cluster labels corresponding
@@ -52,19 +58,24 @@ def renderPlot(data, x, y, clusters_dict=None, cluster_labels=None):
     fig = go.Figure(
         go.Heatmap(
             z=data,
-            x=x,
-            y=y,
+            x=col_names,
+            y=row_names,
             colorscale="Viridis",
         )
     )
 
     # Add cluster visualization if cluster information is provided
     if clusters_dict is not None:
-        _add_cluster_annotations(fig, y, clusters_dict, num_rows, num_cols)
+        _add_cluster_annotations(
+            fig, row_names, clusters_dict, num_rows, num_cols)
 
     # Update layout with calculated dimensions and styling
-    title = ("Protein Expression Heatmap with Cluster Groupings"
-             if clusters_dict else "Protein Expression Heatmap")
+    title = (
+        "Protein Expression Heatmap with Cluster Groupings"
+        if clusters_dict
+        else "Protein Expression Heatmap"
+    )
+
     fig.update_layout(
         width=width,
         height=height,
@@ -76,17 +87,20 @@ def renderPlot(data, x, y, clusters_dict=None, cluster_labels=None):
         yaxis=dict(
             scaleanchor="x",
             side="left",
+            autorange="reversed",
         ),
         title=title,
         title_x=0.5,
     )
 
+    fig.update_yaxes(range=[len(row_names) - 0.5, -0.5])
+
     # Display the plot
-    fig.show()
+    print("\n---Create deepcopy of fig and displaying!---")
+    deepcopy(fig).show()
 
 
-def _add_cluster_annotations(fig, row_names, clusters_dict, num_rows,
-                             num_cols):
+def _add_cluster_annotations(fig, row_names, clusters_dict, num_rows, num_cols):
     """
     Add cluster visualization elements to the heatmap figure.
 
@@ -106,8 +120,9 @@ def _add_cluster_annotations(fig, row_names, clusters_dict, num_rows,
     # Generate distinct colors for each cluster
     cluster_ids = list(clusters_dict.keys())
     cluster_colors = _generate_cluster_colors(len(cluster_ids))
-    cluster_color_map = {cluster_id: cluster_colors[i]
-                         for i, cluster_id in enumerate(cluster_ids)}
+    cluster_color_map = {
+        cluster_id: cluster_colors[i] for i, cluster_id in enumerate(cluster_ids)
+    }
 
     # Add cluster separator lines and annotations
     current_cluster = None
@@ -120,8 +135,8 @@ def _add_cluster_annotations(fig, row_names, clusters_dict, num_rows,
         if current_cluster is not None and cluster_id != current_cluster:
             # Add separator line between clusters
             boundary_y = num_rows - i - 0.5
-            cluster_boundaries.append((boundary_y, current_cluster,
-                                       cluster_id))
+            cluster_boundaries.append(
+                (boundary_y, current_cluster, cluster_id))
 
             fig.add_shape(
                 type="line",
@@ -130,14 +145,15 @@ def _add_cluster_annotations(fig, row_names, clusters_dict, num_rows,
                 y0=boundary_y,
                 y1=boundary_y,
                 line=dict(color="white", width=3),
-                layer="above"
+                layer="above",
             )
 
         current_cluster = cluster_id
 
     # Add cluster ID annotations on the right side
-    _add_cluster_labels(fig, row_names, protein_to_cluster,
-                        cluster_color_map, num_rows, num_cols)
+    _add_cluster_labels(
+        fig, row_names, protein_to_cluster, cluster_color_map, num_rows, num_cols
+    )
 
 
 def _generate_cluster_colors(num_clusters):
@@ -156,19 +172,23 @@ def _generate_cluster_colors(num_clusters):
     else:
         # Generate colors using HSV space for larger number of clusters
         import colorsys
+
         cluster_colors = []
         for i in range(num_clusters):
             hue = i / num_clusters
             rgb = colorsys.hsv_to_rgb(hue, 0.7, 0.9)
-            hex_color = '#%02x%02x%02x' % (int(rgb[0] * 255),
-                                           int(rgb[1] * 255),
-                                           int(rgb[2] * 255))
+            hex_color = "#%02x%02x%02x" % (
+                int(rgb[0] * 255),
+                int(rgb[1] * 255),
+                int(rgb[2] * 255),
+            )
             cluster_colors.append(hex_color)
         return cluster_colors
 
 
-def _add_cluster_labels(fig, row_names, protein_to_cluster,
-                        cluster_color_map, num_rows, num_cols):
+def _add_cluster_labels(
+    fig, row_names, protein_to_cluster, cluster_color_map, num_rows, num_cols
+):
     """
     Add cluster ID labels and color coding to the plot.
 
@@ -191,12 +211,14 @@ def _add_cluster_labels(fig, row_names, protein_to_cluster,
         if cluster_id != current_cluster:
             if current_cluster is not None:
                 # End previous group
-                cluster_groups.append({
-                    'cluster_id': current_cluster,
-                    'start_idx': current_group_start,
-                    'end_idx': i - 1,
-                    'color': cluster_color_map.get(current_cluster, '#000000')
-                })
+                cluster_groups.append(
+                    {
+                        "cluster_id": current_cluster,
+                        "start_idx": current_group_start,
+                        "end_idx": i - 1,
+                        "color": cluster_color_map.get(current_cluster, "#000000"),
+                    }
+                )
 
             # Start new group
             current_cluster = cluster_id
@@ -204,18 +226,20 @@ def _add_cluster_labels(fig, row_names, protein_to_cluster,
 
     # Don't forget the last group
     if current_cluster is not None:
-        cluster_groups.append({
-            'cluster_id': current_cluster,
-            'start_idx': current_group_start,
-            'end_idx': len(row_names) - 1,
-            'color': cluster_color_map.get(current_cluster, '#000000')
-        })
+        cluster_groups.append(
+            {
+                "cluster_id": current_cluster,
+                "start_idx": current_group_start,
+                "end_idx": len(row_names) - 1,
+                "color": cluster_color_map.get(current_cluster, "#000000"),
+            }
+        )
 
     # Add cluster labels on the right side
     for group in cluster_groups:
         # Calculate middle position of the cluster group
-        start_y = num_rows - group['end_idx'] - 1
-        end_y = num_rows - group['start_idx'] - 1
+        start_y = num_rows - group["end_idx"] - 1
+        end_y = num_rows - group["start_idx"] - 1
         middle_y = (start_y + end_y) / 2
 
         # Add cluster label annotation
@@ -224,12 +248,12 @@ def _add_cluster_labels(fig, row_names, protein_to_cluster,
             y=middle_y,
             text=f"Cluster {group['cluster_id']}",
             showarrow=False,
-            font=dict(color=group['color'], size=12, family="Arial Black"),
+            font=dict(color=group["color"], size=12, family="Arial Black"),
             xanchor="left",
             yanchor="middle",
             bgcolor="rgba(255,255,255,0.8)",
-            bordercolor=group['color'],
-            borderwidth=1
+            bordercolor=group["color"],
+            borderwidth=1,
         )
 
         # Add colored rectangle to highlight cluster region
@@ -239,8 +263,8 @@ def _add_cluster_labels(fig, row_names, protein_to_cluster,
             x1=num_cols - 0.1,
             y0=start_y - 0.4,
             y1=end_y + 0.4,
-            fillcolor=group['color'],
+            fillcolor=group["color"],
             opacity=0.7,
             line=dict(width=0),
-            layer="above"
+            layer="above",
         )

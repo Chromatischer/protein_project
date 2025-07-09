@@ -12,6 +12,7 @@ This module orchestrates the analysis of protein data including:
 import json
 from collections import defaultdict
 from datetime import datetime
+import copy
 
 import numpy as np
 import pandas as pd
@@ -156,23 +157,30 @@ if __name__ == "__main__":
 
     print("\n--- KEGG info population complete. ---\n")
 
+    # Region: Matrix Declaration and Initialization
     row_names = []
     column_names = []
     matrix = []
 
-    for protein_sciID_from_cluster in protein_list:
-        protein_sciID_from_cluster: Protein = protein_sciID_from_cluster
+    for protein in protein_list:
+        protein: Protein
         row = []
-        for col_name, value in protein_sciID_from_cluster.hits.items():
+        for col_name, value in protein.hits.items():
             row.append(value)
             if col_name not in column_names:
                 column_names.append(col_name)
         matrix.append(row)
-        row_names.append(protein_sciID_from_cluster.sci_identifier)
+        row_names.append(protein.sci_identifier)
+    # Endregion
 
-    matrix_frame = pd.DataFrame(data=matrix, index=row_names, columns=column_names)
+    matrix_frame = pd.DataFrame(
+        data=matrix, index=row_names, columns=column_names)
 
-    # renderPlot(matrix_frame, column_names, row_names)
+    frame_copy = copy.deepcopy(matrix_frame)
+    col_copy = copy.deepcopy(column_names)
+    row_copy = copy.deepcopy(row_names)
+
+    renderPlot(frame_copy, col_copy, row_copy)
 
     print("\n--- Original DataFrame Head ---")
     print(matrix_frame.head())
@@ -254,13 +262,9 @@ if __name__ == "__main__":
         # Using np.array for cleaner printing of the list
         print(str(clustered_proteins))
         if len(clustered_proteins) > 1:
-            for protein_sciID_from_cluster in clustered_proteins:
+            for protein in clustered_proteins:
                 protein = next(
-                    (
-                        p
-                        for p in protein_list
-                        if p.sci_identifier == protein_sciID_from_cluster
-                    ),
+                    (p for p in protein_list if p.sci_identifier == protein),
                     None,
                 )
 
