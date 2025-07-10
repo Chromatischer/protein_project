@@ -17,6 +17,7 @@ import urllib.request
 from pathlib import Path
 from datetime import datetime
 from models import Protein, KeggEntry
+from utils.cache import get_cache
 
 # Configure Entrez email for NCBI API access
 Entrez.email = "dominik@hildania.de"
@@ -85,7 +86,7 @@ def fetch_protein_info_batch(protein_ids: list) -> dict:
 
     This function efficiently retrieves protein information for multiple proteins
     by processing them in batches to reduce API calls and respect NCBI's rate limits.
-    It includes automatic retry handling and progress reporting.
+    It includes automatic retry handling, progress reporting, and caching support.
 
     Args:
         protein_ids (list): A list of protein accession IDs (e.g., ['NP_000047.2'])
@@ -109,13 +110,33 @@ def fetch_protein_info_batch(protein_ids: list) -> dict:
     if not protein_ids:
         return {}
 
+    cache = get_cache()
     all_protein_records = {}
+    
+    # First, try to get cached results
+    cached_results = cache.get_ncbi_proteins_batch(protein_ids)
+    proteins_to_fetch = []
+    
+    for protein_id in protein_ids:
+        cached_record = cached_results.get(protein_id)
+        if cached_record is not None:
+            all_protein_records[protein_id] = cached_record
+            print(f"Using cached NCBI data for {protein_id}")
+        else:
+            proteins_to_fetch.append(protein_id)
+    
+    if not proteins_to_fetch:
+        print("All NCBI protein data found in cache!")
+        return all_protein_records
+    
+    print(f"Need to fetch {len(proteins_to_fetch)} proteins from NCBI API")
+    newly_fetched = {}
 
     # Process proteins in batches to respect API limits
-    for i in range(0, len(protein_ids), BATCH_SIZE):
-        batch_ids = protein_ids[i : i + BATCH_SIZE]
+    for i in range(0, len(proteins_to_fetch), BATCH_SIZE):
+        batch_ids = proteins_to_fetch[i : i + BATCH_SIZE]
         print(
-            f"Processing batch {i // BATCH_SIZE + 1}/{(len(protein_ids) + BATCH_SIZE - 1) // BATCH_SIZE}..."
+            f"Processing batch {i // BATCH_SIZE + 1}/{(len(proteins_to_fetch) + BATCH_SIZE - 1) // BATCH_SIZE}..."
         )
 
         try:
@@ -143,16 +164,23 @@ def fetch_protein_info_batch(protein_ids: list) -> dict:
                         found_record = record_obj
                         break
                 all_protein_records[protein_id] = found_record
+                newly_fetched[protein_id] = found_record
 
         except Exception as e:
             print(f"Error fetching batch starting with {batch_ids[0]}: {e}")
             # Mark all proteins in this batch as failed
             for protein_id in batch_ids:
                 all_protein_records[protein_id] = None
+                newly_fetched[protein_id] = None
 
         # Add delay between batches to respect API rate limits
-        if i + BATCH_SIZE < len(protein_ids):
+        if i + BATCH_SIZE < len(proteins_to_fetch):
             time.sleep(REQUEST_DELAY_SECONDS)
+
+    # Cache the newly fetched results
+    if newly_fetched:
+        cache.cache_ncbi_proteins_batch(newly_fetched)
+        print(f"Cached {len(newly_fetched)} new NCBI protein records")
 
     return all_protein_records
 
@@ -179,38 +207,75 @@ def fetch_kegg_info_batch(proteins: list[Protein] | list[str]) -> dict:
     Takes as input a list[Proteins] or a list[str] in the format: hsa:xref_id
     Returns a dict {"hsa:"|"NP_XYZ": Info}
     """
+    cache = get_cache()
     result: dict = {}
-
-    queries = (
-        [f"hsa:{p.xref_id}" for p in proteins]
-        if type(proteins) is not list[str]
-        else proteins
-    )
+    
+    # Create identifier mapping for caching
+    identifier_map = {}
+    queries_to_fetch = []
+    
+    if type(proteins) is list[str]:
+        # Handle list of strings
+        for query in proteins:
+            cached_entry = cache.get_kegg_entry(query)
+            if cached_entry is not None:
+                result[query] = cached_entry
+                print(f"Using cached KEGG data for {query}")
+            else:
+                queries_to_fetch.append(query)
+                identifier_map[query] = query
+    else:
+        # Handle list of Protein objects
+        for protein in proteins:
+            kegg_query = f"hsa:{protein.xref_id}"
+            cached_entry = cache.get_kegg_entry(protein.sci_identifier)
+            if cached_entry is not None:
+                result[protein.sci_identifier] = cached_entry
+                print(f"Using cached KEGG data for {protein.sci_identifier}")
+            else:
+                queries_to_fetch.append(kegg_query)
+                identifier_map[kegg_query] = protein.sci_identifier
+    
+    if not queries_to_fetch:
+        print("All KEGG data found in cache!")
+        return result
+    
+    print(f"Need to fetch {len(queries_to_fetch)} entries from KEGG API")
+    newly_fetched = {}
 
     response: str = ""
     try:
-        for num in range(math.ceil(len(queries) / 10)):
+        for num in range(math.ceil(len(queries_to_fetch) / 10)):
             low = 0 + num * 10
             high = 10 + num * 10
             print(f"Fetching Kegg [{low} to {high}]")
-            querie = queries[low:high]
-            response += REST.kegg_get(querie).read()
+            batch_queries = queries_to_fetch[low:high]
+            response += REST.kegg_get(batch_queries).read()
 
     except Exception as e:
         print(e)
 
-    assert response != ""
+    if response == "":
+        print("Warning: No response from KEGG API")
+        return result
 
+    # Parse response and map back to original identifiers
     i = 0
     for part in response.split("///"):
         if part.strip() != "":
-            if type(proteins[i]) is Protein:
-                index = proteins[i].sci_identifier
-            else:
-                index = proteins[i]
+            if i < len(queries_to_fetch):
+                kegg_query = queries_to_fetch[i]
+                identifier = identifier_map[kegg_query]
+                kegg_entry = KeggEntry.from_kegg_text(part)
+                
+                result[identifier] = kegg_entry
+                newly_fetched[identifier] = kegg_entry
+                
+                i += 1
 
-            result[index] = KeggEntry.from_kegg_text(part)
-
-            i += 1
+    # Cache the newly fetched results
+    if newly_fetched:
+        cache.cache_kegg_entries_batch(newly_fetched)
+        print(f"Cached {len(newly_fetched)} new KEGG entries")
 
     return result

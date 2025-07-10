@@ -24,9 +24,17 @@ from models.protein import Protein
 from services.protein_service import fetch_kegg_info_batch, fetch_protein_info_batch
 from utils.data_processing import extract_gene_info, grouping
 from utils.json_utils import export_clusters_to_json
+from utils.cache import get_cache
 from visualization.plotting import renderPlot
 
 if __name__ == "__main__":
+    # Initialize cache system
+    cache = get_cache()
+    print(f"Cache initialized: {cache.get_cache_stats()}")
+    
+    # Optionally clear expired cache entries
+    cache.clear_expired_cache()
+    
     df = pd.read_csv(
         "resources/WWOP230228_PHSN_C12-2_Top100_Variant_Peptides_blinded.csv",
         dtype={
