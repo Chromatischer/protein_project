@@ -112,11 +112,11 @@ def fetch_protein_info_batch(protein_ids: list) -> dict:
 
     cache = get_cache()
     all_protein_records = {}
-    
+
     # First, try to get cached results
     cached_results = cache.get_ncbi_proteins_batch(protein_ids)
     proteins_to_fetch = []
-    
+
     for protein_id in protein_ids:
         cached_record = cached_results.get(protein_id)
         if cached_record is not None:
@@ -124,11 +124,11 @@ def fetch_protein_info_batch(protein_ids: list) -> dict:
             print(f"Using cached NCBI data for {protein_id}")
         else:
             proteins_to_fetch.append(protein_id)
-    
+
     if not proteins_to_fetch:
         print("All NCBI protein data found in cache!")
         return all_protein_records
-    
+
     print(f"Need to fetch {len(proteins_to_fetch)} proteins from NCBI API")
     newly_fetched = {}
 
@@ -209,11 +209,11 @@ def fetch_kegg_info_batch(proteins: list[Protein] | list[str]) -> dict:
     """
     cache = get_cache()
     result: dict = {}
-    
+
     # Create identifier mapping for caching
     identifier_map = {}
     queries_to_fetch = []
-    
+
     if type(proteins) is list[str]:
         # Handle list of strings
         for query in proteins:
@@ -235,11 +235,11 @@ def fetch_kegg_info_batch(proteins: list[Protein] | list[str]) -> dict:
             else:
                 queries_to_fetch.append(kegg_query)
                 identifier_map[kegg_query] = protein.sci_identifier
-    
+
     if not queries_to_fetch:
         print("All KEGG data found in cache!")
         return result
-    
+
     print(f"Need to fetch {len(queries_to_fetch)} entries from KEGG API")
     newly_fetched = {}
 
@@ -267,10 +267,10 @@ def fetch_kegg_info_batch(proteins: list[Protein] | list[str]) -> dict:
                 kegg_query = queries_to_fetch[i]
                 identifier = identifier_map[kegg_query]
                 kegg_entry = KeggEntry.from_kegg_text(part)
-                
+
                 result[identifier] = kegg_entry
                 newly_fetched[identifier] = kegg_entry
-                
+
                 i += 1
 
     # Cache the newly fetched results
