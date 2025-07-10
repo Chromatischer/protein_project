@@ -156,14 +156,16 @@ def evaluate_all_clusters(filepath: str) -> List[Dict]:
     """
     clusters = load_filtered_clusters(filepath)
     results = []
+    skipped = []
 
     for cluster in clusters:
         if int(cluster.get("protein_count")) < 2:
+            skipped.append(cluster.get("cluster_id"))
             continue
         result = compare_protein_families_in_cluster(cluster)
         results.append(result)
 
-    return results
+    return results, skipped
 
 
 def generate_summary_statistics(evaluation_results: List[Dict]) -> Dict:
@@ -219,7 +221,9 @@ def generate_summary_statistics(evaluation_results: List[Dict]) -> Dict:
     }
 
 
-def print_evaluation_report(evaluation_results: List[Dict], summary_stats: Dict):
+def print_evaluation_report(
+    evaluation_results: List[Dict], summary_stats: Dict, skipped: list[int]
+):
     """
     Print a formatted evaluation report.
 
@@ -270,13 +274,16 @@ def print_evaluation_report(evaluation_results: List[Dict], summary_stats: Dict)
         else:
             print("  No common families found")
 
+    print("\nSKIPPED:")
+    print(f"{len(skipped)} Entries: [{str(skipped)}]")
+
 
 if __name__ == "__main__":
     # Example usage
     filepath = "../clusters_filtered.json"
 
     print("Loading and evaluating clusters...")
-    evaluation_results = evaluate_all_clusters(filepath)
+    evaluation_results, skipped = evaluate_all_clusters(filepath)
     summary_stats = generate_summary_statistics(evaluation_results)
 
-    print_evaluation_report(evaluation_results, summary_stats)
+    print_evaluation_report(evaluation_results, summary_stats, skipped)

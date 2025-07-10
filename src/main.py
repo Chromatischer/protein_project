@@ -17,6 +17,7 @@ import copy
 import numpy as np
 import pandas as pd
 from scipy.cluster import hierarchy
+from pandas import DataFrame
 
 # Import our custom modules
 from models.protein import Protein
@@ -173,17 +174,12 @@ if __name__ == "__main__":
         row_names.append(protein.sci_identifier)
     # Endregion
 
-    matrix_frame = pd.DataFrame(
-        data=matrix, index=row_names, columns=column_names)
+    csv_matrix = DataFrame(data=matrix, index=row_names, columns=column_names)
 
-    frame_copy = copy.deepcopy(matrix_frame)
-    col_copy = copy.deepcopy(column_names)
-    row_copy = copy.deepcopy(row_names)
-
-    renderPlot(frame_copy, col_copy, row_copy)
+    # renderPlot(data=csv_matrix, row_names=row_names, col_names=column_names)
 
     print("\n--- Original DataFrame Head ---")
-    print(matrix_frame.head())
+    print(csv_matrix.head())
 
     # --- Normalize the dataframes values per row. Think of the data in each
     # row like a vector in a high dimensional space. Normalize it ---
@@ -192,8 +188,8 @@ if __name__ == "__main__":
 
     # Normalize each row to unit length (L2 normalization)
     # Each row becomes a unit vector in the high-dimensional space
-    normalized_matrix = matrix_frame.div(
-        np.linalg.norm(matrix_frame.values, axis=1), axis=0
+    normalized_matrix: DataFrame = csv_matrix.div(
+        np.linalg.norm(csv_matrix.values, axis=1), axis=0
     )
 
     print("\n--- Normalized DataFrame Head ---")
@@ -203,7 +199,7 @@ if __name__ == "__main__":
 
     # The linkage function performs the clustering
     row_linkage = hierarchy.linkage(
-        normalized_matrix.values, method="ward", metric="euclidean"
+        normalized_matrix.values, method="single", metric="euclidean"
     )
 
     # The dendrogram function calculates the optimal leaf ordering for rows
@@ -218,16 +214,16 @@ if __name__ == "__main__":
     # --- 3. Create the New DataFrame with Clustered Rows ---
     # Use .reindex() with only the 'index' argument to reorder rows
     # and leave the columns in their original order.
-    clustered_rows_df = normalized_matrix.reindex(index=clustered_row_names)
+    clustered_matrix = normalized_matrix.reindex(index=clustered_row_names)
 
     print("\n--- DataFrame with Clustered Rows ---")
     print("Rows are reordered based on similarity; columns are unchanged.")
-    print(clustered_rows_df.head())
+    print(clustered_matrix.head())
 
     # --- 2. Get Cluster Labels ---
     # Define a distance threshold to cut the dendrogram. You may need to adjust this.
     # A smaller 't' will result in more, smaller clusters.
-    distance_threshold = 0.85
+    distance_threshold = 0.6
     cluster_labels = hierarchy.fcluster(
         row_linkage, t=distance_threshold, criterion="distance"
     )
@@ -239,15 +235,15 @@ if __name__ == "__main__":
     clusters_dict = defaultdict(list)
 
     # zip pairs each row name with its corresponding cluster label
-    for row_name, label in zip(matrix_frame.index, cluster_labels):
+    for row_name, label in zip(csv_matrix.index, cluster_labels):
         clusters_dict[label].append(row_name)
 
     # --- 4. Render the Plot with Cluster Information ---
     renderPlot(
-        normalized_matrix,
+        clustered_matrix,
         column_names,
         clustered_row_names,
-        clusters_dict=clusters_dict,
+        # clusters_dict=clusters_dict,
     )
 
     print(
