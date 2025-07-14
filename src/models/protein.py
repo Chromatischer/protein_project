@@ -6,6 +6,7 @@ sequence information, peptide data, and experimental hit values.
 """
 
 from .kegg_model import KeggEntry
+from .ncbi_model import NCBIEntry
 
 
 class Protein:
@@ -26,6 +27,7 @@ class Protein:
         std_dev (float): Standard deviation of measurements
         info (dict): Additional protein information from database
         kegg_info (dict): KEGG database information for the protein
+        ncbi_info (NCBIEntry): NCBI GenBank information for the protein
     """
 
     seq_id: int
@@ -39,6 +41,7 @@ class Protein:
     info: dict
     xref_id: int
     kegg_info: KeggEntry
+    ncbi_info: NCBIEntry
 
     def __init__(
         self,
@@ -52,6 +55,7 @@ class Protein:
         info: dict,
         xref_id: int,
         kegg_info: KeggEntry = None,
+        ncbi_info: NCBIEntry = None,
         **kwargs,
     ):
         """
@@ -66,6 +70,9 @@ class Protein:
             peptide (str): Peptide sequence
             std_dev (float): Standard deviation of measurements
             info (dict): Additional protein information from database
+            xref_id (int): Cross-reference identifier
+            kegg_info (KeggEntry, optional): KEGG database information
+            ncbi_info (NCBIEntry, optional): NCBI GenBank information
             **kwargs: Experimental hit values for samples (K004A1, K004A2, etc.)
 
         Raises:
@@ -81,6 +88,7 @@ class Protein:
         self.std_dev = std_dev
         self.info = info
         self.kegg_info = kegg_info or {}
+        self.ncbi_info = ncbi_info
         self.xref_id = xref_id
 
         # Initialize predefined hit samples with None values

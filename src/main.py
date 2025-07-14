@@ -10,6 +10,7 @@ This module orchestrates the analysis of protein data including:
 """
 
 import json
+import argparse
 from collections import defaultdict
 from datetime import datetime
 import copy
@@ -28,13 +29,28 @@ from utils.cache import get_cache
 from visualization.plotting import renderPlot
 
 if __name__ == "__main__":
+    # Initialize argument parser
+    parser = argparse.ArgumentParser(
+        description="Protein data analysis with optional heatmap rendering."
+    )
+    parser.add_argument(
+        "--no-heatmap", action="store_true", help="Disable heatmap visualization"
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Reduce terminal output to errors and headers only",
+    )
+    args = parser.parse_args()
+
     # Initialize cache system
     cache = get_cache()
-    print(f"Cache initialized: {cache.get_cache_stats()}")
-    
+    if not args.quiet:
+        print(f"Cache initialized: {cache.get_cache_stats()}")
+
     # Optionally clear expired cache entries
     cache.clear_expired_cache()
-    
+
     df = pd.read_csv(
         "resources/WWOP230228_PHSN_C12-2_Top100_Variant_Peptides_blinded.csv",
         dtype={
@@ -59,14 +75,16 @@ if __name__ == "__main__":
             "std_dev": float,
         },
     )
-    print(df.to_string())
-    print(
-        "{:18}".format("Protein")
-        + "{:9}".format("X-RefID")
-        + "{:70}".format("Extracted")
-        + "{:100}".format("From")
-        + "Values"
-    )
+    if not args.quiet:
+        print(df.to_string())
+    if not args.quiet:
+        print(
+            "{:18}".format("Protein")
+            + "{:9}".format("X-RefID")
+            + "{:70}".format("Extracted")
+            + "{:100}".format("From")
+            + "Values"
+        )
 
     # --- REFACTORED LOGIC ---
     # 1. Get a list of unique protein IDs from the DataFrame to avoid redundant fetches.
@@ -75,7 +93,7 @@ if __name__ == "__main__":
 
     # 2. Fetch all protein information in one batched operation.
     # This returns a dictionary: {'protein_id': SeqRecord, ...}
-    protein_info_map = fetch_protein_info_batch(unique_protein_ids)
+    ncbi_info_map = fetch_protein_info_batch(unique_protein_ids, quiet=args.quiet)
     print("\n--- Protein fetching complete. Processing DataFrame rows. ---\n")
 
     protein_list: list[Protein] = []
@@ -85,7 +103,7 @@ if __name__ == "__main__":
     for row in df.itertuples():
         # Get the pre-fetched info for the protein in the current row.
         # Use .get() to safely handle cases where a protein was not found.
-        info = protein_info_map.get(row.Protein)
+        info = ncbi_info_map.get(row.Protein)
 
         # Skip rows where protein info could not be fetched.
         if info is None:
@@ -102,7 +120,8 @@ if __name__ == "__main__":
                 cds = feature
                 break
 
-        print(cds.qualifiers.get("db_xref"))
+        if not args.quiet:
+            print(cds.qualifiers.get("db_xref"))
         for xref in cds.qualifiers.get("db_xref"):
             if "GeneID" in xref:
                 xref_id = int(xref.split("GeneID:")[1])
@@ -122,6 +141,7 @@ if __name__ == "__main__":
             info=info,
             xref_id=xref_id,
             kegg_info=None,  # Will be populated after KEGG batch fetch
+            ncbi_info=None,  # Will be populated with NCBI data if needed
             K004A1=row.K004A1,
             K004A2=row.K004A2,
             K225A1=row.K225A1,
@@ -137,20 +157,21 @@ if __name__ == "__main__":
         )
 
         extracted_gene = extract_gene_info(prot.info.description)
-        print(
-            "{:18}".format(prot.sci_identifier)
-            + "{:9}".format(str(prot.xref_id))
-            + "{:70}".format(extracted_gene)
-            # Truncate for display
-            + "{:100}".format(prot.info.description[:100])
-            + str(list(prot.hits.values()))
-        )
+        if not args.quiet:
+            print(
+                "{:18}".format(prot.sci_identifier)
+                + "{:9}".format(str(prot.xref_id))
+                + "{:70}".format(extracted_gene)
+                # Truncate for display
+                + "{:100}".format(prot.info.description[:100])
+                + str(list(prot.hits.values()))
+            )
         protein_list.append(prot)
 
     # 3. Fetch KEGG information in a batch using the collected xref_ids.
     print(f"Found {len(xref_ids_for_kegg)} unique xref_ids for KEGG fetching.")
     # Pass the list of Protein objects directly to the batch function
-    kegg_info_map = fetch_kegg_info_batch(protein_list)
+    kegg_info_map = fetch_kegg_info_batch(protein_list, quiet=args.quiet)
     print("\n--- KEGG fetching complete. Populating KEGG info for proteins. ---\n")
 
     # 4. Populate kegg_info for each Protein object.
@@ -163,6 +184,11 @@ if __name__ == "__main__":
             print(
                 f"No KEGG info found for protein {protein.sci_identifier} (X-RefID: {protein.xref_id})."
             )
+        ncbi_data = ncbi_info_map.get(protein.sci_identifier)
+        if ncbi_data:
+            protein.ncbi_info = ncbi_data
+        else:
+            print(f"No NCBI info found for protein {protein.sci_identifier}")
 
     print("\n--- KEGG info population complete. ---\n")
 
@@ -247,12 +273,15 @@ if __name__ == "__main__":
         clusters_dict[label].append(row_name)
 
     # --- 4. Render the Plot with Cluster Information ---
-    renderPlot(
-        clustered_matrix,
-        column_names,
-        clustered_row_names,
-        # clusters_dict=clusters_dict,
-    )
+    if not args.no_heatmap:
+        renderPlot(
+            clustered_matrix,
+            column_names,
+            clustered_row_names,
+            # clusters_dict=clusters_dict,
+        )
+    else:
+        print("\nHeatmap rendering disabled (--no-heatmap flag used)")
 
     print(
         f"\n{len(clusters_dict.items())} Individual clusters"
@@ -260,21 +289,22 @@ if __name__ == "__main__":
     )
 
     # --- 4. View the Result ---
-    print("\n--- Clusters stored in a dictionary ---")
-    for cluster_id, clustered_proteins in clusters_dict.items():
-        print(f"\nCluster {cluster_id}:")
-        # Using np.array for cleaner printing of the list
-        print(str(clustered_proteins))
-        if len(clustered_proteins) > 1:
-            for protein in clustered_proteins:
-                protein = next(
-                    (p for p in protein_list if p.sci_identifier == protein),
-                    None,
-                )
+    if not args.quiet:
+        print("\n--- Clusters stored in a dictionary ---")
+        for cluster_id, clustered_proteins in clusters_dict.items():
+            print(f"\nCluster {cluster_id}:")
+            # Using np.array for cleaner printing of the list
+            print(str(clustered_proteins))
+            if len(clustered_proteins) > 1:
+                for protein in clustered_proteins:
+                    protein = next(
+                        (p for p in protein_list if p.sci_identifier == protein),
+                        None,
+                    )
 
-                pass
-                # print(protein.sci_identifier)
-                # print(protein.xref_id)
+                    pass
+                    # print(protein.sci_identifier)
+                    # print(protein.xref_id)
 
     # Export the clusters
     export_filename = export_clusters_to_json(

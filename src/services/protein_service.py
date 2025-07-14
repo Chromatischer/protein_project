@@ -80,7 +80,7 @@ def fetch_protein_info(protein_id):
         return None
 
 
-def fetch_protein_info_batch(protein_ids: list) -> dict:
+def fetch_protein_info_batch(protein_ids: list, quiet: bool = False) -> dict:
     """
     Fetch protein information for a list of protein accession IDs in batches.
 
@@ -121,7 +121,8 @@ def fetch_protein_info_batch(protein_ids: list) -> dict:
         cached_record = cached_results.get(protein_id)
         if cached_record is not None:
             all_protein_records[protein_id] = cached_record
-            print(f"Using cached NCBI data for {protein_id}")
+            if not quiet:
+                print(f"Using cached NCBI data for {protein_id}")
         else:
             proteins_to_fetch.append(protein_id)
 
@@ -201,7 +202,9 @@ def fetch_protein_info_kegg(protein_id: str) -> dict:
     return result
 
 
-def fetch_kegg_info_batch(proteins: list[Protein] | list[str]) -> dict:
+def fetch_kegg_info_batch(
+    proteins: list[Protein] | list[str], quiet: bool = False
+) -> dict:
     """
     This function fetches a batch of proteins at once.
     Takes as input a list[Proteins] or a list[str] in the format: hsa:xref_id
@@ -220,7 +223,8 @@ def fetch_kegg_info_batch(proteins: list[Protein] | list[str]) -> dict:
             cached_entry = cache.get_kegg_entry(query)
             if cached_entry is not None:
                 result[query] = cached_entry
-                print(f"Using cached KEGG data for {query}")
+                if not quiet:
+                    print(f"Using cached KEGG data for {query}")
             else:
                 queries_to_fetch.append(query)
                 identifier_map[query] = query
@@ -231,7 +235,8 @@ def fetch_kegg_info_batch(proteins: list[Protein] | list[str]) -> dict:
             cached_entry = cache.get_kegg_entry(protein.sci_identifier)
             if cached_entry is not None:
                 result[protein.sci_identifier] = cached_entry
-                print(f"Using cached KEGG data for {protein.sci_identifier}")
+                if not quiet:
+                    print(f"Using cached KEGG data for {protein.sci_identifier}")
             else:
                 queries_to_fetch.append(kegg_query)
                 identifier_map[kegg_query] = protein.sci_identifier

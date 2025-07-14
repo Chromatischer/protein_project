@@ -63,7 +63,7 @@ def remove_sequence_fields(
         Processed data with specified fields removed
     """
     if fields_to_remove is None:
-        fields_to_remove = ["aaseq", "ntseq"]
+        fields_to_remove = ["aaseq", "ntseq", "references"]
 
     if isinstance(data, dict):
         result = {}
@@ -112,7 +112,7 @@ def main():
     parser.add_argument(
         "--fields",
         nargs="+",
-        default=["aaseq", "ntseq"],
+        default=["aaseq", "ntseq", "references"],
         help="Fields to process (default: aaseq ntseq)",
     )
     parser.add_argument(
