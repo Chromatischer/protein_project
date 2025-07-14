@@ -5,3 +5,4 @@ cache/ncbi
 cache
 cache
 cache/kegg_protein_cache.json
+output/
